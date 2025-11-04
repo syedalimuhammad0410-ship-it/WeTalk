@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>WeTalk 💜 — Talk</title>
+<style>
+:root {
+  --card: #f7f7fb;
+  --text: #222;
+  --muted: #666;
+  --accent: #7b4fff;
+  --danger: #b00020;
+  --helpline-bg: #fff7f7;
+}
+html, body { height: 100%; margin: 0; font-family: Inter, Roboto, Arial, sans-serif; }
+body {
+  background: linear-gradient(180deg,#ffffff 0%, #f4f6ff 100%);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.container {
+  width: 100%;
+  max-width: 820px;
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: 0 6px 30px rgba(50,50,93,0.08);
+  display: flex;
+  flex-direction: column;
+  min-height: 520px;
+  overflow: hidden;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+  background: linear-gradient(90deg, rgba(123,79,255,0.12), rgba(123,79,255,0.04));
+}
+header h1 { margin:0; font-size:18px; }
+header p { margin:0; font-size:13px; color: var(--muted); }
+#messages {
+  padding: 18px;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.msg {
+  max-width: 78%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  line-height: 1.35;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+  word-break: break-word;
+}
+.msg.user { margin-left: auto; background: linear-gradient(180deg,#dfe9ff,#e8e6ff); }
+.msg.bot { margin-right: auto; background: #ffffff; }
+.helpbox {
+  border-left:4px solid var(--danger);
+  background: var(--helpline-bg);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.helpbox strong { display:block; margin-bottom:6px; color: var(--danger); }
+form#composer {
+  display: flex;
+  gap: 10px;
+  padding: 14px;
+  border-top: 1px solid rgba(0,0,0,0.04);
+  background: white;
+}
+textarea {
+  flex:1; min-height:48px; max-height:140px; padding:10px 12px; font-size:15px;
+  border-radius:8px; border:1px solid #e6e6ee; resize: vertical;
+}
+button {
+  background: var(--accent); color:white; border:none; padding:12px 14px;
+  border-radius:8px; font-weight:600; cursor:pointer; min-width:88px;
+}
+.small-link {
+  display:inline-block; margin-left:10px; font-size:13px; color: var(--muted);
+  text-decoration: underline; cursor:pointer;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>WeTalk 💜 — Chat</h1>
+      <p>Free teen support chat demo (not a real therapist)</p>
+    </div>
+  </header>
+
+  <div id="messages"></div>
+
+  <form id="composer" autocomplete="off">
+    <textarea id="input" placeholder="Type how you're feeling..."></textarea>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button type="submit">Send</button>
+      <a class='small-link' href='index.html'>← Back</a>
+    </div>
+  </form>
+</div>
+
+<script>
+const messages = document.getElementById('messages');
+const input = document.getElementById('input');
+const form = document.getElementById('composer');
+
+function scrollDown(){ messages.scrollTop = messages.scrollHeight; }
+
+function addMessage(text,type){
+  const el = document.createElement('div');
+  el.className = 'msg '+type;
+  el.textContent = text;
+  messages.appendChild(el);
+  scrollDown();
+}
+
+function showHelpBox(){
+  if(document.querySelector('.helpbox')) return;
+  const box = document.createElement('div');
+  box.className = 'helpbox';
+  box.innerHTML = `
+<strong>If you ever feel unsafe or want to hurt yourself</strong>
+Please contact your local emergency services or a suicide helpline right now.<br><br>
+If you’re in the U.S., call or text <strong>988</strong>.<br>
+You are not alone — help is available 24/7.
+  `;
+  messages.appendChild(box);
+  scrollDown();
+}
+
+async function getAIResponse(userText){
+  try{
+    const res = await fetch("/.netlify/functions/gpt", {
+      method:"POST",
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify({ prompt: userText })
+    });
+    const data = await res.json();
+    return data.reply;
+  } catch(err){
+    return "Sorry, AI is not available right now.";
+  }
+}
+
+form.addEventListener('submit', async e=>{
+  e.preventDefault();
+  const text = input.value.trim();
+  if(!text) return;
+  addMessage(text,"user");
+  input.value="";
+  setTimeout(async ()=>{
+    const reply = await getAIResponse(text);
+    addMessage(reply,"bot");
+  },400);
+});
+
+input.addEventListener('keydown',e=>{
+  if(e.key==="Enter" && !e.shiftKey){
+    e.preventDefault();
+    form.dispatchEvent(new Event('submit'));
+  }
+});
+
+addMessage("Hey there 💜 I'm here to listen. How are you feeling today?","bot");
+</script>
+</body>
+</html>
