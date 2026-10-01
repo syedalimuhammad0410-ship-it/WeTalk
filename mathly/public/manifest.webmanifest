@@ -1,0 +1,1 @@
+{ "name": "Mathly", "short_name": "Mathly", "start_url": "/", "display": "standalone", "background_color": "#0b0d14", "theme_color": "#5b5bf0", "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }] }
