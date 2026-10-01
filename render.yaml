@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: mathly
+    runtime: node
+    rootDir: mathly
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: DATABASE_PATH
+        value: /tmp/mathly.db
+      - key: UPLOAD_DIR
+        value: /tmp/uploads
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
