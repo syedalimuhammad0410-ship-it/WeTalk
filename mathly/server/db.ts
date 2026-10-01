@@ -1,12 +1,17 @@
 // SQLite persistence (node:sqlite). Schema is created/migrated on boot.
-import { DatabaseSync } from 'node:sqlite';
+// Loaded via getBuiltinModule so bundlers (e.g. Netlify's esbuild) can't rewrite the 'node:' specifier.
+const { DatabaseSync } = process.getBuiltinModule('node:sqlite') as typeof import('node:sqlite');
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { config } from './config.ts';
 
 mkdirSync(path.dirname(config.dbPath), { recursive: true });
-export const db = new DatabaseSync(config.dbPath);
-db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+// Serverless demo mode keeps the database in a single file (no WAL) so it can be snapshotted.
+const JOURNAL = process.env.SQLITE_JOURNAL === 'DELETE' ? 'DELETE' : 'WAL';
+const open = () => { const d = new DatabaseSync(config.dbPath); d.exec(`PRAGMA journal_mode = ${JOURNAL}; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;`); return d; };
+export let db = open();
+/** Re-open the database file (used when a newer snapshot was downloaded in serverless mode). */
+export function reopenDb() { try { db.close(); } catch { /* already closed */ } db = open(); }
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
