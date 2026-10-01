@@ -240,7 +240,7 @@ export function checkAchievements(profileId: string): typeof ACHIEVEMENTS {
   const streak = streakInfo(profileId).current;
   const mm = masteryMap(profileId);
   const conds: Record<string, () => boolean> = {
-    first_lesson: () => stat("SELECT COUNT(*) n FROM lesson_progress WHERE profile_id = ? AND status = 'completed'") >= 1,
+    first_lesson: () => stat("SELECT COUNT(*) n FROM lesson_progress WHERE profile_id = ? AND status = 'completed' AND lesson_key != 'placement'") >= 1,
     placement: () => !!p.placement_done,
     streak_3: () => streak >= 3, streak_7: () => streak >= 7, streak_30: () => streak >= 30,
     problems_100: () => correct >= 100, problems_1000: () => correct >= 1000,
@@ -263,7 +263,8 @@ export function checkAchievements(profileId: string): typeof ACHIEVEMENTS {
   for (const a of ACHIEVEMENTS) {
     if (have.has(a.id) || disabled.has(a.id)) continue;
     if (conds[a.id]?.()) {
-      run('INSERT OR IGNORE INTO user_achievements (profile_id, achievement_id) VALUES (?, ?)', profileId, a.id);
+      // Returned to (and celebrated by) the caller immediately, so it is already 'seen'.
+      run('INSERT OR IGNORE INTO user_achievements (profile_id, achievement_id, seen) VALUES (?, ?, 1)', profileId, a.id);
       const xp = getSetting<Record<string, number>>('achievement_xp', {})[a.id] ?? a.xp;
       awardRawXp(profileId, xp, `Achievement: ${a.title}`);
       notify(profileId, 'achievement', `Achievement unlocked: ${a.title}`, a.description, '/progress', `ach:${a.id}`);

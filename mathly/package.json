@@ -3,15 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Mathly — an AI math tutor that grows with you",
+  "description": "Mathly \u2014 an AI math tutor that grows with you",
   "scripts": {
     "dev": "concurrently -n api,web -c blue,magenta \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "node --watch --disable-warning=ExperimentalWarning server/index.ts",
     "dev:web": "vite",
     "build": "vite build",
     "start": "NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
-    "test": "node --disable-warning=ExperimentalWarning --test tests/unit/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.e2e.json",
+    "test": "node --disable-warning=ExperimentalWarning --test tests/unit/*.test.ts tests/integration/*.test.ts",
     "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/run.ts"
   },
   "engines": {

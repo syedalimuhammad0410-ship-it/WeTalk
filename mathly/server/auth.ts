@@ -103,13 +103,15 @@ export function publicUser(u: SessionUser | undefined) {
 
 // ─────────────────────────── routes
 export const authRouter = Router();
-const authLimiter = rateLimit('auth', 20, 15 * 60_000);
+// Brute-force protection for credential endpoints; guest creation has its own, looser limit.
+const authLimiter = rateLimit('auth', Number(process.env.AUTH_RATE_LIMIT || 30), 15 * 60_000);
+const guestLimiter = rateLimit('guest', Number(process.env.GUEST_RATE_LIMIT || 60), 15 * 60_000);
 
 authRouter.get('/me', (req, res) => {
   res.json({ user: publicUser(req.user), providers: oauthConfigured });
 });
 
-authRouter.post('/guest', authLimiter, (req, res) => {
+authRouter.post('/guest', guestLimiter, (req, res) => {
   if (req.user) return res.json({ user: publicUser(req.user) });
   const id = randomUUID();
   run('INSERT INTO users (id, is_guest, display_name) VALUES (?, 1, ?)', id, 'Guest');

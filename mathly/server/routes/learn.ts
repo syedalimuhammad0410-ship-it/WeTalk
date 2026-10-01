@@ -320,7 +320,7 @@ learnRouter.get('/skills', (req, res) => {
 
 // ─────────────────────────────────────────── courses
 function courseProgress(c: Course, p: ProfileRow, mm: ReturnType<typeof masteryMap>) {
-  const done = new Set(all<{ lesson_key: string }>("SELECT lesson_key FROM lesson_progress WHERE profile_id = ? AND status = 'completed'", p.id).map((r) => r.lesson_key));
+  const done = new Set(all<{ lesson_key: string }>("SELECT lesson_key FROM lesson_progress WHERE profile_id = ? AND status = 'completed' AND lesson_key != 'placement'", p.id).map((r) => r.lesson_key));
   const lessons = c.units.flatMap((u) => u.lessons);
   const isDone = (l: Course['units'][number]['lessons'][number]) => done.has(l.skillId && !l.generated ? l.skillId : `${c.id}:${l.id}`) || (!!l.skillId && (mm[l.skillId]?.effective ?? 0) >= 80 && !mm[l.skillId]?.estimated);
   const completed = lessons.filter(isDone).length;

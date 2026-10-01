@@ -7,6 +7,7 @@ import {
 import { useApp } from '../lib/store.tsx';
 import { post, get } from '../lib/api.ts';
 import { onOpenTutor, openTutor, type TutorContext } from '../lib/tutorBus.ts';
+import { celebrate, type Achievement } from '../lib/celebrate.ts';
 import { Logo } from './Logo.tsx';
 import { TutorChat } from './TutorChat.tsx';
 import { CommandPalette } from './CommandPalette.tsx';
@@ -44,7 +45,7 @@ export function Layout() {
   }, []);
   // Learning-time heartbeat while the tab is visible.
   useEffect(() => {
-    const t = setInterval(() => { if (document.visibilityState === 'visible') post('/me/activity', { seconds: 60 }).catch(() => {}); }, 60_000);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') post<{ achievements: Achievement[] }>('/me/activity', { seconds: 60 }).then((r) => celebrate(r)).catch(() => {}); }, 60_000);
     return () => clearInterval(t);
   }, []);
 
@@ -135,8 +136,8 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
     <header className="glass sticky top-0 z-20 border-b border-border">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6 lg:px-10">
         <NavLink to="/" className="lg:hidden"><Logo size={32} showText={false} /></NavLink>
-        <button onClick={onSearch} className="flex h-11 flex-1 items-center gap-2 rounded-2xl border border-border bg-surface px-3.5 text-left text-muted transition hover:border-accent/50 sm:max-w-md" aria-label="Search courses, lessons, topics and resources">
-          <Search className="h-4.5 w-4.5" /><span className="truncate text-sm">Search lessons, topics, resources…</span><kbd className="ml-auto hidden rounded-md border border-border px-1.5 text-[11px] sm:block">⌘K</kbd>
+        <button onClick={onSearch} className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl border border-border bg-surface px-3.5 text-left text-muted transition hover:border-accent/50 sm:max-w-md" aria-label="Search courses, lessons, topics and resources">
+          <Search className="h-4.5 w-4.5 shrink-0" /><span className="truncate text-sm">Search lessons, topics, resources…</span><kbd className="ml-auto hidden rounded-md border border-border px-1.5 text-[11px] sm:block">⌘K</kbd>
         </button>
         <div className="ml-auto flex items-center gap-1.5">
           {profile && <span className="hidden items-center gap-1 rounded-full bg-warn-soft px-3 py-1.5 text-sm font-bold text-warn sm:flex" title="Learning streak"><span className="flame">🔥</span>{profile.streak}</span>}

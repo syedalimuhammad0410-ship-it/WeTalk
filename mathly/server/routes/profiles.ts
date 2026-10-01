@@ -113,7 +113,7 @@ familyRouter.get('/report', (req, res) => {
     const mm = masteryMap(p.id);
     const lvl = computeLearningLevel(p.id);
     const topics = topicMastery(mm, p.school_grade != null && p.school_grade <= 12 ? Math.max(p.school_grade, Math.floor(lvl.overall ?? 0)) : 15);
-    const lessonsDone = one<{ n: number }>("SELECT COUNT(*) n FROM lesson_progress WHERE profile_id = ? AND status = 'completed'", p.id)!.n;
+    const lessonsDone = one<{ n: number }>("SELECT COUNT(*) n FROM lesson_progress WHERE profile_id = ? AND status = 'completed' AND lesson_key != 'placement'", p.id)!.n;
     const days = all<{ day: string; seconds: number }>("SELECT day, seconds FROM activity_days WHERE profile_id = ? AND day >= date('now','-6 days') ORDER BY day", p.id);
     return {
       id: p.id, name: p.name, avatar: p.avatar, color: p.color, schoolLabel: gradeLabel(p.school_grade, p.curriculum),
