@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { SESSION_COOKIE, verifySessionToken, type SessionClaims } from "@/lib/auth/session";
 import { rateLimit } from "./ratelimit";
+import { isActiveUser, isOwner } from "./accounts";
 import { flushUsage, recordUsage } from "./usage";
 
 export class HttpError extends Error {
@@ -16,9 +17,15 @@ export class HttpError extends Error {
   }
 }
 
-export async function currentUser(): Promise<SessionClaims | null> {
+export async function currentUser(): Promise<(SessionClaims & { owner: boolean }) | null> {
   const jar = await cookies();
-  return verifySessionToken(jar.get(SESSION_COOKIE)?.value);
+  const s = await verifySessionToken(jar.get(SESSION_COOKIE)?.value);
+  if (!s || !(await isActiveUser(s.email))) return null; // disabled/deleted accounts lose access immediately
+  return { ...s, owner: isOwner(s.email) };
+}
+
+export function requireOwner(user: { owner: boolean }) {
+  if (!user.owner) throw new HttpError(403, "Only the workspace owner can do this.");
 }
 
 export function clientIp(req: NextRequest) {
@@ -30,7 +37,7 @@ export function clientIp(req: NextRequest) {
   );
 }
 
-type Handler<C> = (req: NextRequest, ctx: { user: SessionClaims; params: C }) => Promise<Response | unknown>;
+type Handler<C> = (req: NextRequest, ctx: { user: SessionClaims & { owner: boolean }; params: C }) => Promise<Response | unknown>;
 
 /**
  * Wraps a route handler: authentication, per-user rate limiting, error mapping,

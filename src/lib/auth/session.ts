@@ -35,8 +35,7 @@ export async function verifySessionToken(token: string | undefined | null): Prom
   try {
     const { payload } = await jwtVerify(token, key, { issuer: "trace", audience: "trace-app", algorithms: ["HS256"] });
     if (!payload.sub) return null;
-    const allowed = allowedEmails();
-    if (!allowed.includes(payload.sub.toLowerCase())) return null; // revocation by removing from allow-list
+    // account status (owner allow-list or active account) is checked server-side in route()
     return { email: payload.sub, name: String(payload.name || "") };
   } catch {
     return null;

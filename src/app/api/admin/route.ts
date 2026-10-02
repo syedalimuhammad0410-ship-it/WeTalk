@@ -1,10 +1,11 @@
-import { route } from "@/lib/server/api";
+import { requireOwner, route } from "@/lib/server/api";
 import { recentUsage, type UsageEvent } from "@/lib/server/usage";
 import { cacheStats } from "@/lib/server/cache";
 import { storage } from "@/lib/server/storage";
 
 /** Developer/admin diagnostics: API calls, errors, latency, cache hits, cost units. */
-export const GET = route(async () => {
+export const GET = route(async (_req, { user }) => {
+  requireOwner(user);
   const s = storage();
   const days: Record<string, unknown> = {};
   const today = new Date();

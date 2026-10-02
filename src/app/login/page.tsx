@@ -71,7 +71,12 @@ function LoginInner() {
               <Button type="submit" variant="primary" className="w-full" loading={loading}>
                 Sign in
               </Button>
-              <p className="mt-4 text-center text-[11.5px] text-mute">Only authorized accounts can access this workspace.</p>
+              <p className="mt-4 text-center text-[12px] text-mute">
+                No account?{" "}
+                <a href="/signup" className="text-cyan hover:underline">
+                  Create an account
+                </a>
+              </p>
             </form>
           </motion.div>
         ) : (

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Clock3, FolderSearch, LogOut, Map, Menu, Network, Plus, Settings, ShieldCheck, Terminal, BookMarked, X } from "lucide-react";
+import { Clock3, FolderSearch, LogOut, Map, Menu, Network, Plus, Settings, ShieldCheck, Terminal, BookMarked, Users, X } from "lucide-react";
 import { Logo } from "./Logo";
 import { cn } from "./ui";
 import { useWorkspace, ws, type Tab } from "@/lib/client/store";
@@ -13,7 +13,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const invId = useWorkspace((s) => s.inv?.id);
   const tab = useWorkspace((s) => s.tab);
   const [open, setOpen] = useState(false);
-  const [user, setUser] = useState<{ name: string; email: string } | null>(null);
+  const [user, setUser] = useState<{ name: string; email: string; owner?: boolean } | null>(null);
   useEffect(() => {
     fetch("/api/auth/session")
       .then((r) => r.json())
@@ -54,9 +54,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ),
       )}
       <div className="my-3 h-px bg-line" />
-      <Link href="/app/admin" className={cn("flex items-center gap-3 rounded-[5px] px-3 py-2 text-[13px]", path === "/app/admin" ? "bg-white/[0.07] text-fg" : "text-mute hover:text-fg")}>
-        <Terminal className="size-4" /> Debug & usage
-      </Link>
+      {user?.owner && (
+        <>
+          <Link href="/app/users" className={cn("flex items-center gap-3 rounded-[5px] px-3 py-2 text-[13px]", path === "/app/users" ? "bg-white/[0.07] text-fg" : "text-dim hover:text-fg")}>
+            <Users className="size-4" /> Users & sign-ins
+          </Link>
+          <Link href="/app/admin" className={cn("flex items-center gap-3 rounded-[5px] px-3 py-2 text-[13px]", path === "/app/admin" ? "bg-white/[0.07] text-fg" : "text-mute hover:text-fg")}>
+            <Terminal className="size-4" /> Debug & usage
+          </Link>
+        </>
+      )}
       <Link href="/privacy" className="flex items-center gap-3 rounded-[5px] px-3 py-2 text-[13px] text-mute hover:text-fg">
         <ShieldCheck className="size-4" /> Privacy & Responsible Research
       </Link>
