@@ -84,14 +84,10 @@ class FsStorage implements StorageAdapter {
 
 class BlobStorage implements StorageAdapter {
   readonly name = "Netlify Blobs";
-  private storePromise: Promise<import("@netlify/blobs").Store> | null = null;
-  private store() {
-    if (!this.storePromise) {
-      this.storePromise = import("@netlify/blobs").then(({ getStore }) =>
-        getStore({ name: process.env.TRACE_STORE_NAME || "trace", consistency: "strong" }),
-      );
-    }
-    return this.storePromise;
+  // Netlify injects a short-lived Blobs token per request: never cache the store client.
+  private async store() {
+    const { getStore } = await import("@netlify/blobs");
+    return getStore({ name: process.env.TRACE_STORE_NAME || "trace", consistency: "strong" });
   }
   async getJSON<T>(key: string) {
     const s = await this.store();
