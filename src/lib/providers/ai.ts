@@ -231,16 +231,21 @@ Extract EVERY useful clue for identifying where/what this is: all legible text (
 }
 
 /** Claude when configured (paid), otherwise Gemini (free tier), otherwise unconfigured Claude stub. */
+/** Paid Claude is used only when AI_PROVIDER=claude, or when no free Gemini key is set. */
+function preferClaude(ctx: ProviderContext) {
+  return process.env.AI_PROVIDER === "claude" || !ctx.secrets.GEMINI_API_KEY;
+}
+
 export function aiProvider(ctx: ProviderContext): AIProvider {
   const claude = anthropicProvider(ctx);
-  if (claude.configured()) return claude;
   const gem = geminiProvider(ctx);
-  if (gem.configured()) return gem;
-  return claude;
+  if (gem.configured() && !preferClaude(ctx)) return gem;
+  if (claude.configured()) return claude;
+  return gem.configured() ? gem : claude;
 }
 
 export function anthropicClient(ctx: ProviderContext) {
   const key = ctx.secrets.ANTHROPIC_API_KEY;
-  if (!key || !ctx.prefs.aiEnabled) return null;
+  if (!key || !ctx.prefs.aiEnabled || !preferClaude(ctx)) return null;
   return new Anthropic({ apiKey: key, timeout: 60_000, maxRetries: 1 });
 }
