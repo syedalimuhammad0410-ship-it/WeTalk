@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #050608;
+  --color-bg: #08090b;
+  --color-panel: #0d0f13;
+  --color-panel-2: #12151a;
+  --color-raise: #181c22;
+  --color-line: rgb(255 255 255 / 0.07);
+  --color-line-strong: rgb(255 255 255 / 0.14);
+  --color-fg: #eef1f4;
+  --color-dim: #9aa3ad;
+  --color-mute: #646d77;
+  --color-cyan: #59d4e8;
+  --color-cyan-deep: #1b8ea3;
+  --color-signal: #ff7a45;
+  --color-alert: #ff4f5e;
+  --color-ok: #57d68d;
+  --color-warn: #f2b84b;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-jb), ui-monospace, "SFMono-Regular", monospace;
+  --radius-card: 6px;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+
+body {
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(89 212 232 / 0.3);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.12) transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
+/* film grain */
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.5'/></svg>");
+  opacity: 0.06;
+  animation: grain 1.2s steps(6) infinite;
+  z-index: 50;
+}
+
+@keyframes grain {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-4%, 3%); }
+  40% { transform: translate(3%, -2%); }
+  60% { transform: translate(-2%, -4%); }
+  80% { transform: translate(4%, 2%); }
+  100% { transform: translate(0, 0); }
+}
+
+.vignette {
+  background: radial-gradient(ellipse at center, transparent 40%, rgb(0 0 0 / 0.65) 100%);
+}
+
+.scanlines {
+  background-image: repeating-linear-gradient(to bottom, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 3px);
+}
+
+.hairline-grid {
+  background-image: linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.label-mono {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.pulse-ring {
+  animation: pulse-ring 2.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+@keyframes pulse-ring {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+.dash-flow {
+  stroke-dasharray: 6 6;
+  animation: dash 1.2s linear infinite;
+}
+@keyframes dash {
+  to { stroke-dashoffset: -24; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.06), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .grain::after {
+    display: none;
+  }
+}
+
+/* React Flow dark theme */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: rgb(255 255 255 / 0.22);
+  --xy-edge-stroke-selected: var(--color-cyan);
+  --xy-connectionline-stroke: var(--color-cyan);
+  --xy-attribution-background-color: transparent;
+  --xy-controls-button-background-color: #12151a;
+  --xy-controls-button-background-color-hover: #1b2027;
+  --xy-controls-button-color: #cfd6dd;
+  --xy-controls-button-border-color: rgb(255 255 255 / 0.08);
+  --xy-minimap-background-color: #0b0d10;
+  --xy-minimap-mask-background-color: rgb(0 0 0 / 0.6);
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__edge-textbg {
+  fill: #0d0f13;
+}
+.react-flow__edge-text {
+  fill: #8d97a1;
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+/* Leaflet dark chrome */
+.leaflet-container {
+  background: #0a0c0f !important;
+  font-family: var(--font-sans);
+}
+.leaflet-control-attribution {
+  background: rgb(8 9 11 / 0.75) !important;
+  color: #7b858f !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a {
+  color: #9fd9e3 !important;
+}
+.leaflet-bar a,
+.leaflet-control-layers {
+  background: #12151a !important;
+  color: #dfe5ea !important;
+  border-color: rgb(255 255 255 / 0.08) !important;
+}
+.leaflet-control-layers-expanded {
+  color: #dfe5ea;
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #12151a;
+  color: #eef1f4;
+  border: 1px solid rgb(255 255 255 / 0.1);
+}
+.leaflet-tile.dim-tiles,
+.dim-tiles {
+  filter: brightness(0.72) contrast(1.08) saturate(0.85);
+}
