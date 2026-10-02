@@ -141,7 +141,7 @@ Extract EVERY useful clue for identifying where/what this is: all legible text (
 const GEMINI_MODELS = (process.env.GEMINI_MODELS || "gemini-3.5-flash,gemini-3-flash-preview,gemini-3.1-flash-lite,gemini-flash-lite-latest").split(",");
 
 export function geminiProvider(ctx: ProviderContext): AIProvider {
-  const key = ctx.secrets.GEMINI_API_KEY;
+  const key = ctx.secrets.GEMINI_API_KEY?.trim();
   let lastModel = GEMINI_MODELS[0];
   async function generate<T>(op: string, schema: z.ZodType<T>, parts: Record<string, unknown>[], shape: string): Promise<T> {
     if (!key) throw new Error("Gemini is not configured. Set GEMINI_API_KEY.");
