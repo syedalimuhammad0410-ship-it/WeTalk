@@ -137,8 +137,106 @@ Extract EVERY useful clue for identifying where/what this is: all legible text (
   };
 }
 
+// ---------------- Google Gemini (free tier available via Google AI Studio) ----------------
+const GEMINI_MODELS = (process.env.GEMINI_MODELS || "gemini-3.5-flash,gemini-3-flash-preview,gemini-3.1-flash-lite,gemini-flash-lite-latest").split(",");
+
+export function geminiProvider(ctx: ProviderContext): AIProvider {
+  const key = ctx.secrets.GEMINI_API_KEY;
+  let lastModel = GEMINI_MODELS[0];
+  async function generate<T>(op: string, schema: z.ZodType<T>, parts: Record<string, unknown>[], shape: string): Promise<T> {
+    if (!key) throw new Error("Gemini is not configured. Set GEMINI_API_KEY.");
+    const started = Date.now();
+    let lastErr = "";
+    for (const model of GEMINI_MODELS) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: SYSTEM }] },
+            contents: [{ role: "user", parts: [...parts, { text: `Respond ONLY with JSON matching this shape (use null or [] when absent):\n${shape}` }] }],
+            generationConfig: { responseMimeType: "application/json", temperature: 0.2 },
+          }),
+          signal: AbortSignal.timeout(22000),
+        });
+        const j = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: number }; candidates?: { content?: { parts?: { text?: string }[] } }[]; usageMetadata?: { totalTokenCount?: number } };
+        if (!res.ok || j.error) {
+          lastErr = `${model}: ${j.error?.message || res.status}`;
+          continue; // busy / unavailable model → try the next one
+        }
+        const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+        const parsed = schema.safeParse(JSON.parse(text.replace(/^```json|```$/g, "").trim()));
+        if (!parsed.success) {
+          lastErr = `${model}: unexpected response format`;
+          continue;
+        }
+        lastModel = model;
+        recordUsage({ at: new Date().toISOString(), provider: "gemini", op, ok: true, ms: Date.now() - started, costUnits: j.usageMetadata?.totalTokenCount });
+        return parsed.data;
+      } catch (e) {
+        lastErr = `${model}: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    recordUsage({ at: new Date().toISOString(), provider: "gemini", op, ok: false, ms: Date.now() - started, error: lastErr });
+    throw new Error(`Gemini unavailable (${lastErr})`);
+  }
+  const img = (i: Img) => ({ inline_data: { mime_type: i.mime, data: i.base64 } });
+  // lenient schemas: Gemini sometimes omits empty fields
+  const Lenient = z.object({
+    summary: z.string().default(""),
+    sceneType: z.string().default("unknown"),
+    text: z.array(z.object({ text: z.string(), where: z.string().default(""), confidence: z.enum(["high", "medium", "low"]).catch("medium") })).default([]),
+    logos: z.array(z.object({ name: z.string(), category: z.string().default(""), confidence: z.enum(["high", "medium", "low"]).catch("medium"), alternatives: z.array(z.string()).default([]) })).default([]),
+    architecture: z.array(z.string()).default([]),
+    environment: z.array(z.string()).default([]),
+    sport: z.object({ sport: z.string(), features: z.array(z.string()).default([]) }).nullable().default(null),
+    document: z.object({ publication: z.string().nullable().default(null), date: z.string().nullable().default(null), headline: z.string().nullable().default(null), names: z.array(z.string()).default([]) }).nullable().default(null),
+    entities: z.array(z.object({ name: z.string(), type: z.string().default("other") })).default([]),
+    suggestedQueries: z.array(z.string()).default([]),
+    peopleNote: z.string().nullable().default(null),
+    flags: z.array(z.object({ country: z.string(), confidence: z.enum(["high", "medium", "low"]).catch("medium") })).default([]),
+  });
+  const VISION_SHAPE = `{"summary":string,"sceneType":string,"text":[{"text":string,"where":string,"confidence":"high"|"medium"|"low"}],"logos":[{"name":string,"category":string,"confidence":"high"|"medium"|"low","alternatives":[string]}],"flags":[{"country":string,"confidence":"high"|"medium"|"low"}],"architecture":[string],"environment":[string],"sport":{"sport":string,"features":[string]}|null,"document":{"publication":string|null,"date":string|null,"headline":string|null,"names":[string]}|null,"entities":[{"name":string,"type":string}],"suggestedQueries":[string],"peopleNote":string|null}`;
+  return {
+    id: "gemini",
+    get model() {
+      return lastModel;
+    },
+    configured: () => Boolean(key) && ctx.prefs.aiEnabled,
+    async analyzeImage(i, opts) {
+      const r = await generate("analyzeImage", Lenient, [
+        img(i),
+        {
+          text: `Investigation mode: ${opts.mode}.${opts.focus ? ` Focus only on: ${opts.focus}.` : ""}${opts.instructions ? ` User instructions: ${opts.instructions}` : ""}
+Extract EVERY useful clue for identifying where/what this is: all legible text (exact transcription, including small, rotated, partial and background text), every logo/brand/sponsor (jerseys, boards, signage, vehicles), every flag (name the country), architecture, environment, sport venue features, document fields, named entities (organizations, teams, venues, places, publications, events, dates), and 4-10 specific search queries a researcher should run. Never identify private individuals.`,
+        },
+      ], VISION_SHAPE);
+      return { model: `gemini:${lastModel}`, ...r, document: r.document ? { ...r.document, publication: r.document.publication ?? undefined, date: r.document.date ?? undefined, headline: r.document.headline ?? undefined } : null, peopleNote: r.peopleNote ?? undefined };
+    },
+    async compareImages(a, b, context) {
+      return generate("compareImages", CompareSchema, [
+        { text: "IMAGE A (under investigation):" },
+        img(a),
+        { text: "IMAGE B (reference photo of a candidate):" },
+        img(b),
+        { text: `Candidate context: ${context}. Compare concrete, checkable features. List only matches visible in BOTH images; label weak resemblances as weak. List differences. Photos may differ in year or angle.` },
+      ], `{"matches":[{"feature":string,"strength":"strong"|"moderate"|"weak"}],"differences":[string],"verdict":"consistent"|"inconsistent"|"inconclusive","note":string}`);
+    },
+    async explainEvidence(factsJson) {
+      return generate("explainEvidence", ExplainSchema, [
+        { text: `Write a plain-language explanation (4-7 sentences) of this investigation's current state using ONLY these facts. Distinguish direct evidence, indirect evidence, inference and user-provided information; state uncertainty honestly; add no new facts. Then list 2-5 next steps.\n\nFACTS (JSON):\n${factsJson}` },
+      ], `{"explanation":string,"nextSteps":[string]}`);
+    },
+  };
+}
+
+/** Claude when configured (paid), otherwise Gemini (free tier), otherwise unconfigured Claude stub. */
 export function aiProvider(ctx: ProviderContext): AIProvider {
-  return anthropicProvider(ctx);
+  const claude = anthropicProvider(ctx);
+  if (claude.configured()) return claude;
+  const gem = geminiProvider(ctx);
+  if (gem.configured()) return gem;
+  return claude;
 }
 
 export function anthropicClient(ctx: ProviderContext) {

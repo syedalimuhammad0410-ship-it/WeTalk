@@ -9,6 +9,7 @@ import { storage } from "./storage";
  */
 export const SECRET_KEYS = [
   "ANTHROPIC_API_KEY",
+  "GEMINI_API_KEY",
   "BRAVE_SEARCH_API_KEY",
   "TAVILY_API_KEY",
   "SERPAPI_API_KEY",

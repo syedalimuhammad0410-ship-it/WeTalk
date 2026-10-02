@@ -30,6 +30,7 @@ interface Provider {
 }
 
 const KEY_HELP: Record<string, string> = {
+  GEMINI_API_KEY: "Google Gemini vision + explanations — free key at aistudio.google.com/apikey (used when no Claude key is set)",
   ANTHROPIC_API_KEY: "Claude multimodal vision, AI chat with tools, AI explanations and comparisons — console.anthropic.com",
   GOOGLE_CLOUD_VISION_API_KEY: "Logo, landmark, OCR and web detection (legitimate reverse-image signals) — Google Cloud console, enable Cloud Vision API",
   BRAVE_SEARCH_API_KEY: "Web, news, image and video search — api-dashboard.search.brave.com",

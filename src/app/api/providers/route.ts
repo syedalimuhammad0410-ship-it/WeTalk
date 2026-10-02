@@ -14,6 +14,7 @@ export const GET = route(async (_req, { user }) => {
       p("clip", "CLIP zero-shot scene + embeddings (in-browser, transformers.js)", "Vision", "keyless"),
       p("detr", "Object detection (in-browser, transformers.js)", "Vision", "keyless"),
       p("anthropic", `Claude multimodal AI (${ctx.prefs.aiModel})`, "AI", k.ANTHROPIC_API_KEY ? (ctx.prefs.aiEnabled ? "ready" : "needs-key") : "needs-key", "ANTHROPIC_API_KEY", ctx.prefs.aiEnabled ? undefined : "Disabled in settings"),
+      p("gemini", "Google Gemini multimodal AI (free tier)", "AI", k.GEMINI_API_KEY ? (ctx.prefs.aiEnabled ? "ready" : "needs-key") : "needs-key", "GEMINI_API_KEY"),
       p("google-cloud-vision", "Google Cloud Vision (OCR, logos, landmarks, web detection)", "Vision", k.GOOGLE_CLOUD_VISION_API_KEY ? "ready" : "needs-key", "GOOGLE_CLOUD_VISION_API_KEY"),
       p("wikidata", "Wikidata knowledge graph", "Knowledge", "keyless"),
       p("wikipedia", "Wikipedia search & summaries", "Web", "keyless"),

@@ -91,7 +91,7 @@ export const ws = {
       const s = await api.get<{ prefs: { animation: WorkspaceState["animation"] } }>("/api/settings");
       const ready = (id: string) => r.providers.find((p) => p.id === id)?.state === "ready";
       const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      set({ providers: { ai: ready("anthropic"), cloudVision: ready("google-cloud-vision"), webKeyed: ready("brave") || ready("tavily") }, animation: reduced ? "reduced" : s.prefs.animation });
+      set({ providers: { ai: ready("anthropic") || ready("gemini"), cloudVision: ready("google-cloud-vision"), webKeyed: ready("brave") || ready("tavily") }, animation: reduced ? "reduced" : s.prefs.animation });
     } catch {
       set({ providers: { ai: false, cloudVision: false, webKeyed: false } });
     }
