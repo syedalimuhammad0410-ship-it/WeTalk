@@ -83,7 +83,7 @@ export async function loginLog() {
 }
 
 export async function accountSettings(): Promise<{ requireApproval: boolean; allowSignups: boolean }> {
-  return { requireApproval: true, allowSignups: true, ...((await storage().getJSON<object>(SETTINGS)) || {}) };
+  return { requireApproval: false, allowSignups: true, ...((await storage().getJSON<object>(SETTINGS)) || {}) };
 }
 
 export async function saveAccountSettings(s: Partial<{ requireApproval: boolean; allowSignups: boolean }>) {
