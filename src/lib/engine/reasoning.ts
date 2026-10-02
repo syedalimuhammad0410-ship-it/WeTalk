@@ -117,7 +117,9 @@ export function assess(inv: Investigation): Investigation {
     const linkedEntities = next.entities.filter((e) => c.derivedFrom.some((d) => compact(d) === compact(e.name)) && e.name !== c.name);
     if (linkedEntities.length) {
       const e = linkedEntities[0];
-      const q = e.matchQuality === "strong" ? 0.85 : e.matchQuality === "moderate" ? 0.65 : 0.4;
+      // entities found only by probabilistic visual recognition (no readable text) stay weak
+      const visualOnly = e.clueIds.length > 0 && e.clueIds.every((id) => next.clues.find((cl) => cl.id === id)?.origin === "vision-model");
+      const q = visualOnly ? 0.3 : e.matchQuality === "strong" ? 0.85 : e.matchQuality === "moderate" ? 0.65 : 0.4;
       sig.link = q;
       const fromLogo = e.clueIds.some((id) => next.clues.find((cl) => cl.id === id)?.type === "logo");
       if (fromLogo) sig.logo = q;
@@ -164,6 +166,24 @@ export function assess(inv: Investigation): Investigation {
         const st = `The city “${c.city}” is ${textHit ? `named in visible text (“${textHit.value}”)` : "among the entities found in the image"}.`;
         evs.push({ kind: "inference", polarity: "supports", statement: st, strength: "moderate", sourceIds: primarySrc, clueIds: textHit ? [textHit.id] : cityHit?.clueIds || [] });
         why.push(st);
+      }
+    }
+
+    // ---- flags seen in the image vs the candidate's country
+    const flagClues = activeClues(next).filter((cl) => cl.type === "flag");
+    if (flagClues.length && c.country) {
+      const match = flagClues.find((f) => compact(f.value) === compact(c.country!) || (compact(c.country!).includes("unitedstates") && /unitedstates|usa/.test(compact(f.value))) || (compact(c.country!).includes("unitedkingdom") && /england|scotland|wales|unitedkingdom/.test(compact(f.value))));
+      if (match) {
+        sig.geo = Math.max(sig.geo ?? 0, 0.7);
+        const st = `A ${match.value} flag is visible in the image, consistent with this place being in ${c.country}.`;
+        evs.push({ kind: "inference", polarity: "supports", statement: st, strength: match.weight >= 0.6 ? "moderate" : "weak", sourceIds: primarySrc, clueIds: [match.id] });
+        why.push(st);
+      } else {
+        const st = `Visible flag(s) (${flagClues.map((f) => f.value).join(", ")}) do not match ${c.country}; flags can also appear at international events, so this is weak evidence.`;
+        const strongFlag = flagClues.some((f) => f.weight >= 0.6);
+        evs.push({ kind: "inference", polarity: "contradicts", statement: st, strength: strongFlag ? "moderate" : "weak", sourceIds: [], clueIds: flagClues.map((f) => f.id) });
+        against.push(st);
+        if (strongFlag) sig.geo = Math.min(sig.geo ?? 0, -0.6);
       }
     }
 
@@ -376,6 +396,20 @@ function falsify(inv: Investigation, c: Candidate, others: Candidate[], dates: D
 export function buildConclusion(inv: Investigation, lead?: Candidate): Conclusion {
   const created = nowIso();
   const textCount = inv.clues.filter((c) => c.type === "text" && !c.ignored).length;
+  const flagC = inv.clues.filter((c) => c.type === "flag" && !c.ignored && c.weight >= 0.55).sort((a, b) => b.weight - a.weight)[0];
+  if (!lead && flagC) {
+    return {
+      candidateId: null,
+      headline: `Possible country: ${flagC.value} (from visible flags)`,
+      confidence: "low",
+      reasons: [`The flag of ${flagC.value} was recognised in the image (${flagC.engine}).`],
+      uncertainties: ["Flags can be displayed outside their country (embassies, events, fans abroad), so this indicates but does not prove the country.", "No specific place could be identified from the other clues."],
+      explanation: `TRACE recognised the flag of ${flagC.value} but found no text, landmark or metadata that pins down a specific place. The country is a lead, not a conclusion.`,
+      generatedBy: "rules",
+      createdAt: created,
+      nextSteps: ["Select a region around any sign or text and run “Investigate region”.", "Add a note with anything you know (city, event, date).", "Configure an AI vision provider (ANTHROPIC_API_KEY) for full scene reading."],
+    };
+  }
   if (!lead) {
     return {
       candidateId: null,

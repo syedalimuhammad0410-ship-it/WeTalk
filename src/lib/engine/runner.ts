@@ -188,8 +188,22 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
           clues.push({ id: uid("clue"), imageId: im.id, type: "architecture", label: "Architectural style (probabilistic)", value: sc.styles[0].label, weight: sc.styles[0].score * 0.6, origin: "vision-model", engine: "CLIP zero-shot" });
         s.detail = `${top.label}${sc.hints.length ? ` · hints: ${sc.hints.join(", ")}` : ""}`;
       });
+      let caption = "";
+      if (opts.mode !== "quick") {
+        await step("vision", `Image description (Florence-2) · ${im.name}`, async (s) => {
+          const { florenceCaption } = await import("@/lib/vision/florence");
+          const cap = await florenceCaption(c, (m) => ((s.detail = m), emit({ type: "step", step: { ...s } })));
+          if (cap) {
+            caption = cap;
+            clues.push({ id: uid("clue"), imageId: im.id, type: "scene", label: "Description", value: cap, weight: 0.4, origin: "vision-model", engine: "florence-2 caption" });
+            if (/\bflags?\b/i.test(cap)) s.detail = `${cap} (flag mentioned)`;
+            else s.detail = cap;
+          }
+        });
+      }
       const sport = ["basketball", "football", "baseball", "hockey", "soccer"].find((h) => sceneHints.has(h));
-      if (sport && embeddings.has(im.id) && opts.mode !== "quick") {
+      const sportScene = (analysis.scene[0]?.group === "sports venue" && analysis.scene[0].score >= 0.4) && (!caption || /\b(court|arena|stadium|game|match|basketball|football|soccer|baseball|hockey|players?|field|rink|pitch|team)\b/i.test(caption));
+      if (sport && sportScene && embeddings.has(im.id) && opts.mode !== "quick") {
         await step("logo", `Logo recognition (CLIP zero-shot vs ${sport} teams from Wikidata)`, async (s) => {
           const r = await api.get<{ leagues: { league: string; teams: { id: string; label: string }[] }[] }>(`/api/knowledge/teams?sport=${sport}`);
           const teams = Array.from(new Set(r.leagues.flatMap((l) => l.teams.map((t) => t.label)))).slice(0, 120);
@@ -200,13 +214,28 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
           }
           const ranked = await clip.recognizeLogos(c, teams, sport);
           const [a, b] = ranked;
-          if (a && a.p >= 0.3 && (!b || a.p >= b.p * 1.6)) {
+          if (a && a.p >= 0.5 && (!b || a.p >= b.p * 2.5)) {
             clues.push({ id: uid("clue"), imageId: im.id, type: "logo", label: "Logo (visual recognition, probabilistic)", value: a.name, weight: Math.min(0.8, a.p), origin: "vision-model", engine: "CLIP zero-shot · Wikidata team list" });
             for (const o of ranked.slice(1, 3)) if (o.p >= 0.12) clues.push({ id: uid("clue"), imageId: im.id, type: "logo", label: "Possible second team branding (weak)", value: o.name, weight: Math.min(0.4, o.p), origin: "vision-model", engine: "CLIP zero-shot · Wikidata team list" });
             s.detail = `${a.name} (${a.p >= 0.6 ? "strong" : "moderate"} visual match)${ranked[1] ? ` · next: ${ranked[1].name}` : ""} · ${teams.length} teams compared`;
           } else {
             s.detail = `No team logo recognised confidently among ${teams.length} teams (closest: ${ranked.slice(0, 3).map((x) => `${x.name} ${x.p.toFixed(2)}`).join(", ")})`;
           }
+        });
+      }
+      if (opts.mode !== "quick" && embeddings.has(im.id)) {
+        const rec = await import("@/lib/vision/recognize");
+        await step("flags", `Flag recognition (${rec.COUNTRIES.length} national flags) · ${im.name}`, async (s) => {
+          const flags = await rec.recognizeFlags(c);
+          for (const f of flags)
+            clues.push({ id: uid("clue"), imageId: im.id, type: "flag", label: `Flag (visual recognition${f.tiles > 1 ? `, seen in ${f.tiles} regions` : ""})`, value: f.name, weight: Math.min(0.85, f.p + (f.tiles - 1) * 0.05), box: f.box.w < 1 ? f.box : undefined, origin: "vision-model", engine: "CLIP zero-shot · flags" });
+          s.detail = flags.length ? flags.map((f) => `${f.name} (${f.p >= 0.6 ? "strong" : "moderate"})`).join(", ") : "No national flag recognised confidently";
+        });
+        await step("logo", `Brand & sponsor logo recognition (${rec.BRANDS.length} brands) · ${im.name}`, async (s) => {
+          const brands = await rec.recognizeBrands(c);
+          for (const b of brands)
+            clues.push({ id: uid("clue"), imageId: im.id, type: "logo", label: "Brand / sponsor logo (visual recognition, probabilistic)", value: b.name, weight: Math.min(0.75, b.p), box: b.box.w < 1 ? b.box : undefined, origin: "vision-model", engine: "CLIP zero-shot · brands" });
+          s.detail = brands.length ? brands.map((b) => b.name).join(", ") : "No brand logo recognised confidently";
         });
       }
       if (cfg.detect) {
@@ -250,7 +279,7 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
         if (!isDoc || opts.mode !== "quick") {
           try {
             const { florenceOcr } = await import("@/lib/vision/florence");
-            const fl = await florenceOcr(c, { tiles: !region && (opts.mode === "deep" || opts.mode === "sports" || opts.mode === "location"), region: region?.box, onProgress: (m) => ((s.detail = m), emit({ type: "step", step: { ...s } })) });
+            const fl = await florenceOcr(c, { tiles: !region && opts.mode !== "quick", region: region?.box, onProgress: (m) => ((s.detail = m), emit({ type: "step", step: { ...s } })) });
             for (const l of fl) if (!lines.some((x) => x.text.toLowerCase() === l.text.toLowerCase())) lines.push({ ...l, source });
             engines.push("florence-2");
           } catch (e) {
@@ -290,6 +319,7 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
         for (const l of ai.logos) clues.push({ id: uid("clue"), imageId: im.id, type: "logo", label: `Logo · ${l.category}`, value: l.name, weight: l.confidence === "high" ? 0.85 : l.confidence === "medium" ? 0.6 : 0.35, origin: "ai", engine: ai.model });
         for (const a of ai.architecture.slice(0, 4)) clues.push({ id: uid("clue"), imageId: im.id, type: "architecture", label: "Architecture (AI)", value: a, weight: 0.4, origin: "ai", engine: ai.model });
         for (const e of ai.environment.slice(0, 4)) clues.push({ id: uid("clue"), imageId: im.id, type: "environment", label: "Environment (AI)", value: e, weight: 0.3, origin: "ai", engine: ai.model });
+        for (const f of ai.flags || []) clues.push({ id: uid("clue"), imageId: im.id, type: "flag", label: `Flag (AI, ${f.confidence})`, value: f.country, weight: f.confidence === "high" ? 0.85 : f.confidence === "medium" ? 0.6 : 0.35, origin: "ai", engine: ai.model });
         if (ai.sport) clues.push({ id: uid("clue"), imageId: im.id, type: "sport", label: "Sport (AI)", value: `${ai.sport.sport}: ${ai.sport.features.slice(0, 3).join(", ")}`, weight: 0.6, origin: "ai", engine: ai.model });
         if (ai.document?.publication) clues.push({ id: uid("clue"), imageId: im.id, type: "document", label: "Publication (AI)", value: ai.document.publication, weight: 0.7, origin: "ai", engine: ai.model });
         if (ai.document?.date) clues.push({ id: uid("clue"), imageId: im.id, type: "date", label: "Document date (AI)", value: ai.document.date, weight: 0.5, origin: "ai", engine: ai.model });
@@ -315,7 +345,7 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
     const focusTypes = opts.focus?.clueTypes;
     const usable = inv.clues.filter((c) => !c.ignored && (!focusTypes?.length || focusTypes.includes(c.type)));
     const texts: TextInput[] = usable
-      .filter((c) => ["text", "document"].includes(c.type))
+      .filter((c) => ["text", "document"].includes(c.type) && (c.origin !== "ocr" || c.weight >= 0.5))
       .map((c) => ({ text: c.value, confidence: Math.round(c.weight * 100), origin: c.origin === "ai" ? "ai" : "ocr", clueId: c.id }));
     // join spatially adjacent text (e.g. "StateFarm" stacked over "ARENA") into composite phrases
     const boxed = usable.filter((c) => c.type === "text" && c.box && c.value.length <= 24);
@@ -331,7 +361,7 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
         if (below || rightOf) composites.push({ text: `${a.value} ${b.value}`, confidence: Math.round(Math.min(a.weight, b.weight) * 90), origin: "ocr", clueId: a.id });
       }
     texts.push(...composites);
-    const logos = usable.filter((c) => c.type === "logo").map((c) => ({ name: c.value, confidence: c.weight, clueId: c.id }));
+    const logos = usable.filter((c) => c.type === "logo" || c.type === "flag").map((c) => ({ name: c.value, confidence: c.weight, clueId: c.id }));
     const landmarks = [...cloudResults.values()].flatMap((c) => c.landmarks);
     const aiEntities = [...aiResults.values()].flatMap((a) => a.entities);
     await step("entities", "Entity extraction & resolution (Wikipedia/Wikidata)", async (s) => {

@@ -115,6 +115,7 @@ export type ClueType =
   | "address"
   | "phone"
   | "website"
+  | "flag"
   | "user";
 
 export interface Clue {
@@ -498,5 +499,6 @@ export interface AiVisionResult {
   document?: { publication?: string; date?: string; headline?: string; names: string[] } | null;
   entities: { name: string; type: string }[];
   suggestedQueries: string[];
+  flags?: { country: string; confidence: "high" | "medium" | "low" }[];
   peopleNote?: string;
 }

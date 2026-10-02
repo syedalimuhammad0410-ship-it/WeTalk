@@ -48,6 +48,7 @@ const VisionSchema = z.object({
   entities: z.array(z.object({ name: z.string(), type: z.string() })),
   suggestedQueries: z.array(z.string()),
   peopleNote: z.string().nullable(),
+  flags: z.array(z.object({ country: z.string(), confidence: z.enum(["high", "medium", "low"]) })),
 });
 
 const CompareSchema = z.object({
@@ -108,7 +109,7 @@ export function anthropicProvider(ctx: ProviderContext): AIProvider {
         {
           type: "text",
           text: `Investigation mode: ${opts.mode}.${opts.focus ? ` Focus only on: ${opts.focus}.` : ""}${opts.instructions ? ` User instructions: ${opts.instructions}` : ""}
-Extract every useful clue for identifying where/what this is: all legible text (exact transcription), logos/brands, architecture, environment, sport venue features, document fields, named entities (organizations, teams, venues, places, publications, events, dates), and 4-10 specific search queries a researcher should run. Keep entries short.`,
+Extract EVERY useful clue for identifying where/what this is: all legible text (exact transcription, including small, rotated, partial and background text), every logo/brand/sponsor (jerseys, boards, signage, vehicles), every flag (name the country), architecture, environment, sport venue features, document fields, named entities (organizations, teams, venues, places, publications, events, dates), and 4-10 specific search queries a researcher should run. Keep entries short.`,
         },
       ]);
       return { model, ...r, document: r.document ? { ...r.document, publication: r.document.publication ?? undefined, date: r.document.date ?? undefined, headline: r.document.headline ?? undefined } : null, peopleNote: r.peopleNote ?? undefined };

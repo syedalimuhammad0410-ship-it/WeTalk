@@ -76,7 +76,7 @@ export async function florenceOcr(canvas: HTMLCanvasElement, opts: { tiles?: boo
   await loadFlorence(opts.onProgress);
   const passes: { box: Box }[] = [{ box: { x: 0, y: 0, w: 1, h: 1 } }];
   if (opts.tiles) for (const [x, y] of [[0, 0], [0.45, 0], [0, 0.45], [0.45, 0.45]]) passes.push({ box: { x, y, w: 0.55, h: 0.55 } });
-  const seen = new Map<string, { text: string; box: Box; hits: number }>();
+  const seen = new Map<string, { text: string; box: Box; hits: number; tileHit: boolean }>();
   let i = 0;
   for (const p of passes) {
     opts.onProgress?.(passes.length > 1 ? `Reading scene text (pass ${++i}/${passes.length})` : "Reading scene text");
@@ -93,7 +93,8 @@ export async function florenceOcr(canvas: HTMLCanvasElement, opts: { tiles?: boo
       const key = l.text.toLowerCase().replace(/\s+/g, "");
       const cur = seen.get(key);
       if (cur) cur.hits++;
-      else seen.set(key, { text: l.text, box, hits: 1 });
+      else seen.set(key, { text: l.text, box, hits: 1, tileHit: p.box.w < 1 });
+      if (cur && p.box.w < 1) cur.tileHit = true;
     }
   }
   // partial reads from tiles ("BROAD", "OADWAY") are fragments of a fuller read ("BROADWAY"): fold them in
@@ -107,7 +108,21 @@ export async function florenceOcr(canvas: HTMLCanvasElement, opts: { tiles?: boo
   }
   return [...seen.values()].map((s) => {
     const letters = s.text.replace(/[^\p{L}]/gu, "").length;
-    const conf = Math.min(95, 62 + (s.hits - 1) * 15 + Math.min(18, letters * 2));
+    // with tiles enabled, real text is normally re-read in a zoomed tile; full-frame-only reads are suspect
+    const conf = opts.tiles && !s.tileHit && s.hits === 1 ? 45 : Math.min(95, 62 + (s.hits - 1) * 15 + Math.min(18, letters * 2));
     return { id: uid("ocr"), text: s.text, confidence: conf, box: s.box, source: opts.region ? "region" : "original", engine: "florence-2", uncertain: conf < 70 || letters < 3 } as OcrLine;
   });
+}
+
+/** A detailed natural-language description of the whole image (Florence-2). */
+export async function florenceCaption(canvas: HTMLCanvasElement, onProgress?: (m: string) => void): Promise<string> {
+  const { model, processor } = await loadFlorence(onProgress);
+  const T = await transformers();
+  const blob: Blob = await new Promise((r) => canvas.toBlob((b) => r(b!), "image/jpeg", 0.92));
+  const image = await T.RawImage.fromBlob(blob);
+  const task = "<MORE_DETAILED_CAPTION>";
+  const inputs = await processor(image, processor.construct_prompts(task));
+  const ids = await model.generate({ ...inputs, max_new_tokens: 120 });
+  const text = processor.batch_decode(ids, { skip_special_tokens: false })[0];
+  return String(processor.post_process_generation(text, task, image.size)[task] || "").trim();
 }
