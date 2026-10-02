@@ -27,7 +27,7 @@ function LoginInner() {
       setWelcome(j.name || "Investigator");
       const next = params.get("next");
       const dest = next && next.startsWith("/app") ? next : "/app";
-      setTimeout(() => router.replace(dest), 3200);
+      setTimeout(() => window.location.assign(dest), 3200);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setLoading(false);
