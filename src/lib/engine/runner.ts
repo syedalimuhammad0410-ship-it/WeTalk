@@ -32,6 +32,7 @@ export type RunEvent =
   | { type: "clues"; imageId: string; clues: Clue[] }
   | { type: "focus"; imageId: string; box?: { x: number; y: number; w: number; h: number }; label?: string }
   | { type: "compare"; candidateId: string; thumb: string; overall: string }
+  | { type: "locate"; name: string; lat: number; lng: number; precision: string; confidence: number; confirmed: boolean }
   | { type: "log"; text: string; level?: "info" | "warn" | "error" };
 
 export interface RunOptions {
@@ -58,6 +59,32 @@ const MODE_CFG: Record<InvestigationMode, { detect: boolean; ocrPasses: number; 
 const embeddings = new Map<string, Float32Array>();
 
 class Cancelled extends Error {}
+
+const compactName = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
+/** Compact text summary of everything the perception phases found, for the AI geolocator. */
+function geoClueText(inv: Investigation, sceneHints: string[], ai: AiVisionResult[]) {
+  const by = (t: string) => inv.clues.filter((c) => !c.ignored && c.type === t).sort((a, b) => b.weight - a.weight);
+  const line = (label: string, vals: string[]) => (vals.length ? `${label}: ${Array.from(new Set(vals)).slice(0, 25).join(" | ")}` : "");
+  const exif = inv.images.map((i) => i.analysis?.exif).find((e) => e?.lat !== undefined || e?.takenAt);
+  return [
+    line("Visible text", [...by("text"), ...by("document")].map((c) => `${c.value}${c.weight < 0.5 ? " (uncertain)" : ""}`)),
+    line("Logos/brands", by("logo").map((c) => c.value)),
+    line("Flags", by("flag").map((c) => c.value)),
+    line("Scene", [...sceneHints, ...ai.map((a) => a.sceneType)]),
+    line("Architecture", ai.flatMap((a) => a.architecture)),
+    line("Environment", ai.flatMap((a) => a.environment)),
+    line("Resolved entities", inv.entities.map((e) => `${e.name} (${e.type})`)),
+    line("Other clues", inv.clues.filter((c) => !c.ignored && !["text", "document", "logo", "flag"].includes(c.type)).map((c) => `${c.type}: ${c.value}`)),
+    exif?.lat !== undefined ? `Photo GPS metadata: ${exif.lat}, ${exif.lng}` : "",
+    exif?.takenAt ? `Photo date metadata: ${exif.takenAt}` : "",
+    inv.notes.length ? line("Investigator notes (unverified)", inv.notes.map((n) => n.text)) : "",
+    inv.customInstructions ? `Instructions: ${inv.customInstructions}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 7500);
+}
 
 export async function runInvestigation(start: Investigation, opts: RunOptions): Promise<Investigation> {
   const cfg = MODE_CFG[opts.mode];
@@ -99,6 +126,24 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
     run.budget.used += d.queries?.length || 0;
     for (const n of d.notes || []) emit({ type: "log", text: n });
     publish();
+  };
+  // AI hypotheses that match an existing candidate (same name or within ~1.5 km) strengthen it instead of duplicating it
+  const mergeAiCandidates = (d: ResearchDelta) => {
+    const fresh: Candidate[] = [];
+    for (const c of d.candidates || []) {
+      const loc = d.locations?.find((l) => l.id === c.locationId);
+      const twin = inv.candidates.find((x) => {
+        if (compactName(x.name) === compactName(c.name) || x.names.some((n) => compactName(n.name) === compactName(c.name))) return true;
+        const xl = inv.locations.find((l) => l.id === x.locationId);
+        return Boolean(loc && xl && Math.hypot(loc.lat - xl.lat, (loc.lng - xl.lng) * Math.cos((loc.lat * Math.PI) / 180)) < 0.0135);
+      });
+      if (twin) {
+        twin.signals = { ...twin.signals, ai: Math.max(twin.signals.ai ?? 0, c.signals.ai ?? 0) };
+        twin.why = Array.from(new Set([...twin.why, ...c.why.filter((w) => w.startsWith("AI geolocation"))]));
+        twin.sourceIds = Array.from(new Set([...twin.sourceIds, ...c.sourceIds]));
+      } else fresh.push(c);
+    }
+    apply({ ...d, candidates: fresh, locations: (d.locations || []).filter((l) => fresh.some((c) => c.locationId === l.id)) });
   };
   const overBudget = () => run.budget.used >= run.budget.maxQueries;
   const save = async () => {
@@ -421,6 +466,33 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
         apply(d);
         s.detail = `${d.candidates?.length || 0} map candidates · ${d.queries.length} map queries`;
       }),
+      opts.providers?.ai && opts.mode !== "document"
+        ? step("ai-geolocation", "AI geolocation: reading every clue to pin the location", async (s) => {
+            const r = await api.post<{ status: string; error?: string; model: string; overall: string; locations: { name: string; address: string | null; city: string | null; region: string | null; country: string | null; lat: number | null; lng: number | null; precision: string; confidence: number; reasoning: string; keyClues: string[]; searchQuery: string }[] }>(
+              "/api/geolocate",
+              { imageKeys: images.slice(0, 3).map((i) => i.key), clues: geoClueText(inv, [...sceneHints], [...aiResults.values()]) },
+              opts.signal,
+            );
+            if (r.status !== "ok") {
+              s.status = r.status === "not_configured" ? "skipped" : "error";
+              s.detail = r.error;
+              return;
+            }
+            if (r.overall) emit({ type: "log", text: `AI geolocation: ${r.overall}` });
+            let confirmed = 0;
+            await Promise.all(
+              r.locations.slice(0, opts.mode === "quick" ? 2 : 4).map(async (g, rank) => {
+                const d = await api.post<ResearchDelta>("/api/geolocate/verify", { ...g, model: r.model, rank }, opts.signal);
+                mergeAiCandidates(d);
+                const loc = d.locations?.[0];
+                const ok = !d.candidates?.[0]?.against.length;
+                if (ok) confirmed++;
+                if (loc) emit({ type: "locate", name: g.name, lat: loc.lat, lng: loc.lng, precision: g.precision, confidence: g.confidence, confirmed: ok });
+              }),
+            );
+            s.detail = r.locations.length ? `${r.locations.length} hypotheses · ${confirmed} confirmed on the map · top: ${r.locations[0].name}` : "No location hypotheses";
+          })
+        : Promise.resolve(),
     ]);
     // photo-date timeline event
     for (const dh of imageDateHints(inv)) {

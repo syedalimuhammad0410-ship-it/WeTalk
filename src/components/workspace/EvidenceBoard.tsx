@@ -35,7 +35,7 @@ const EvidenceNode = memo(function EvidenceNode({ data, selected }: NodeProps<No
   const Icon = ICON[data.kind] || Network;
   const tag = typeof data.userColor === "string" ? (data.userColor as string) : undefined;
   return (
-    <div className={cn("w-[230px] rounded-[5px] border bg-panel/95 shadow-xl backdrop-blur transition-shadow", ACCENT[data.kind] || "border-line", selected && "ring-2 ring-cyan/60", data.color === "muted" && "opacity-50", data.kind === "conclusion" && "bg-signal/10")} style={tag ? { borderColor: tag, boxShadow: `0 0 0 1px ${tag}55` } : undefined}>
+    <div className={cn("board-pop w-[230px] rounded-[5px] border bg-panel/95 shadow-xl backdrop-blur transition-shadow", ACCENT[data.kind] || "border-line", selected && "ring-2 ring-cyan/60", data.color === "muted" && "opacity-50", data.kind === "conclusion" && "bg-signal/10")} style={tag ? { borderColor: tag, boxShadow: `0 0 0 1px ${tag}55` } : undefined}>
       <Handle type="target" position={Position.Left} className="!size-2 !border-0 !bg-white/40" />
       {data.thumb && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -56,18 +56,87 @@ const EvidenceNode = memo(function EvidenceNode({ data, selected }: NodeProps<No
   );
 });
 
-const nodeTypes = { evidence: EvidenceNode, "note-card": EvidenceNode };
+/** Slippy-map tile (z/x/y) containing a point, plus the point's position inside that tile (0..1). */
+function tileFor(lat: number, lng: number, z: number) {
+  const n = 2 ** z;
+  const xf = ((lng + 180) / 360) * n;
+  const r = (lat * Math.PI) / 180;
+  const yf = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n;
+  return { x: Math.floor(xf), y: Math.floor(yf), fx: xf - Math.floor(xf), fy: yf - Math.floor(yf), z };
+}
+const TILE_Z: Record<string, number> = { exact: 16, street: 15, neighbourhood: 13, city: 11, region: 7, country: 5 };
+
+/** "Possible location" card: live map tile with a radar pin, precision and AI confidence, and a pinpoint action. */
+const LocationNode = memo(function LocationNode({ data, selected }: NodeProps<Node<BoardNodeData>>) {
+  const lat = Number(data.lat);
+  const lng = Number(data.lng);
+  const precision = String(data.precision || "exact");
+  const ai = typeof data.aiConfidence === "number" ? (data.aiConfidence as number) : null;
+  const lead = data.status === "leading";
+  const rejected = data.status === "rejected";
+  const unconfirmed = Boolean(data.unconfirmed);
+  const t = Number.isFinite(lat) && Number.isFinite(lng) ? tileFor(lat, lng, TILE_Z[precision] ?? 15) : null;
+  const pin = rejected ? "#646d77" : lead ? "#ff5a5a" : unconfirmed ? "#f2b84b" : "#59d4e8";
+  return (
+    <div className={cn("board-pop w-[230px] overflow-hidden rounded-[5px] border bg-panel/95 shadow-xl backdrop-blur", lead ? "border-[#ff5a5a]/70 shadow-[0_0_28px_rgba(255,90,90,0.25)]" : "border-ok/50", selected && "ring-2 ring-cyan/60", rejected && "opacity-50")}>
+      <Handle type="target" position={Position.Left} className="!size-2 !border-0 !bg-white/40" />
+      {t && (
+        <div className="relative h-28 overflow-hidden bg-ink">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`https://tile.openstreetmap.org/${t.z}/${t.x}/${t.y}.png`} alt="" draggable={false} className="absolute h-[256px] w-[256px] max-w-none opacity-80 [filter:grayscale(0.35)_brightness(0.8)_contrast(1.1)]" style={{ left: `calc(50% - ${t.fx * 256}px)`, top: `calc(50% - ${t.fy * 256}px)` }} />
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(89,212,232,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(89,212,232,0.08)_1px,transparent_1px)] bg-[size:18px_18px]" />
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+            <div className={cn("radar-pin", lead && "lead")} style={{ ["--pin" as string]: pin }}>
+              <span className="ring" />
+              <span className="ring" />
+              <span className="ring" />
+              <span className="core" />
+            </div>
+          </div>
+          <div className="label-mono absolute left-1.5 top-1.5 bg-black/75 px-1 py-px !text-[8px]" style={{ color: pin }}>
+            ⌖ {lead ? "LEADING LOCATION" : rejected ? "RULED OUT" : "POSSIBLE LOCATION"}
+          </div>
+          <div className="absolute bottom-0 right-0 bg-black/60 px-1 text-[7px] text-white/60">© OpenStreetMap</div>
+        </div>
+      )}
+      <div className="p-2.5">
+        <div className="line-clamp-2 text-[12.5px] font-medium leading-snug">{data.title}</div>
+        <div className="mt-0.5 font-mono text-[10.5px] text-mute">
+          {data.subtitle} · {precision}
+        </div>
+        {ai !== null && (
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/10">
+              <div className="board-bar h-full" style={{ width: `${Math.round(ai * 100)}%`, background: pin }} />
+            </div>
+            <span className="font-mono text-[9.5px] text-dim">{unconfirmed ? "AI est." : "AI + map"} {Math.round(ai * 100)}%</span>
+          </div>
+        )}
+        <button
+          className="nodrag mt-2 w-full rounded-[3px] border border-line-strong py-1 text-[10.5px] text-dim hover:border-cyan/50 hover:text-fg"
+          onClick={() => ws.set({ tab: "map", selectedCandidateId: (data.candidateId as string) || null })}
+        >
+          ⌖ Pinpoint on map
+        </button>
+      </div>
+      <Handle type="source" position={Position.Right} className="!size-2 !border-0 !bg-cyan/70" />
+    </div>
+  );
+});
+
+const nodeTypes = { evidence: EvidenceNode, "note-card": EvidenceNode, location: LocationNode };
 
 function toFlow(b: Board, hiddenKinds: Set<string>): { nodes: Node<BoardNodeData>[]; edges: Edge[] } {
   return {
-    nodes: b.nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data, hidden: hiddenKinds.has(n.data.kind) })),
+    nodes: b.nodes.map((n) => ({ id: n.id, type: n.data.kind === "location" && n.data.lat !== undefined ? "location" : n.type, position: n.position, data: n.data, hidden: hiddenKinds.has(n.data.kind) })),
     edges: b.edges.map((e) => ({
       id: e.id,
       source: e.source,
       target: e.target,
       label: e.label,
-      animated: !e.manual,
-      style: { stroke: e.kind === "contradicts" ? "#ff4f5e" : e.kind === "supports" ? "rgba(89,212,232,0.55)" : e.manual ? "#f2b84b" : "rgba(255,255,255,0.22)", strokeDasharray: e.kind === "contradicts" ? "4 4" : undefined },
+      animated: !e.manual && e.kind !== "string",
+      className: e.kind === "string" ? "red-string" : undefined,
+      style: { stroke: e.kind === "string" ? "#e5383b" : e.kind === "contradicts" ? "#ff4f5e" : e.kind === "supports" ? "rgba(89,212,232,0.55)" : e.manual ? "#f2b84b" : "rgba(255,255,255,0.22)", strokeWidth: e.kind === "string" ? 2 : undefined, strokeDasharray: e.kind === "contradicts" ? "4 4" : undefined },
       data: { manual: e.manual, kind: e.kind },
     })),
   };

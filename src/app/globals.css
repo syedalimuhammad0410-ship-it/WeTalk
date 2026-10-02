@@ -189,3 +189,100 @@ body {
 .dim-tiles {
   filter: brightness(0.72) contrast(1.08) saturate(0.85);
 }
+
+/* ---- possible-location markers (map tab) ---- */
+.radar-pin {
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+.radar-pin .core {
+  position: absolute;
+  inset: 4px;
+  border-radius: 9999px;
+  background: var(--pin, #59d4e8);
+  box-shadow: 0 0 12px var(--pin, #59d4e8), 0 0 0 2px #050608;
+}
+.radar-pin .ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1.5px solid var(--pin, #59d4e8);
+  animation: radar-ring 2.4s ease-out infinite;
+}
+.radar-pin .ring:nth-child(2) { animation-delay: 0.8s; }
+.radar-pin .ring:nth-child(3) { animation-delay: 1.6s; }
+.radar-pin.lead .core { inset: 3px; }
+.radar-pin.drop { animation: pin-drop 0.7s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+@keyframes radar-ring {
+  0% { transform: scale(0.6); opacity: 0.95; }
+  100% { transform: scale(4.2); opacity: 0; }
+}
+@keyframes pin-drop {
+  0% { transform: translateY(-40px) scale(0.4); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.leaflet-container .radar-pin-icon { background: transparent; border: 0; }
+
+/* target-lock overlay drawn over the map while flying to a possible location */
+.lock-reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 220px;
+  height: 220px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: lock-converge 1.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.lock-reticle i {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-color: var(--lock, #ff5a5a);
+  border-style: solid;
+  border-width: 0;
+}
+.lock-reticle i:nth-child(1) { left: 0; top: 0; border-left-width: 2px; border-top-width: 2px; }
+.lock-reticle i:nth-child(2) { right: 0; top: 0; border-right-width: 2px; border-top-width: 2px; }
+.lock-reticle i:nth-child(3) { right: 0; bottom: 0; border-right-width: 2px; border-bottom-width: 2px; }
+.lock-reticle i:nth-child(4) { left: 0; bottom: 0; border-left-width: 2px; border-bottom-width: 2px; }
+.lock-reticle::before,
+.lock-reticle::after {
+  content: "";
+  position: absolute;
+  background: color-mix(in srgb, var(--lock, #ff5a5a) 45%, transparent);
+}
+.lock-reticle::before { left: 50%; top: -60vh; bottom: -60vh; width: 1px; }
+.lock-reticle::after { top: 50%; left: -60vw; right: -60vw; height: 1px; }
+@keyframes lock-converge {
+  0% { width: 520px; height: 520px; opacity: 0; }
+  30% { opacity: 1; }
+  100% { width: 70px; height: 70px; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radar-pin .ring, .radar-pin.drop, .lock-reticle { animation: none; }
+}
+@keyframes lock-label {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ---- evidence board: cards pop in, location links draw in like red string ---- */
+.board-pop { animation: board-pop 0.55s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes board-pop {
+  0% { opacity: 0; transform: scale(0.7) rotate(-2deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+.board-bar { animation: board-bar 1.4s 0.3s ease-out both; transform-origin: left; }
+@keyframes board-bar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.react-flow__edge.red-string path.react-flow__edge-path {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: string-draw 1.6s 0.2s ease-out forwards;
+  filter: drop-shadow(0 0 3px rgba(229, 56, 59, 0.6));
+}
+@keyframes string-draw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .board-pop, .board-bar, .react-flow__edge.red-string path.react-flow__edge-path { animation: none; stroke-dashoffset: 0; }
+}

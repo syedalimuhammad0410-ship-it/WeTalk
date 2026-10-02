@@ -9,6 +9,16 @@ export interface MapPin {
   strong?: boolean;
 }
 
+/** A "target lock" on a location hypothesis: converging reticle, graticule and coordinate readout. */
+export interface MapLock {
+  lat: number;
+  lng: number;
+  label: string;
+  /** performance.now() timestamp when the lock started (drives the converge animation) */
+  t0: number;
+  confirmed?: boolean;
+}
+
 let dotsCache: Promise<[number, number][]> | null = null;
 export function worldDots() {
   if (!dotsCache) dotsCache = fetch("/world-dots.json").then((r) => r.json());
@@ -29,6 +39,7 @@ export function WorldMap({
   className,
   intensity = 1,
   radar = false,
+  lock = null,
 }: {
   pins?: MapPin[];
   center?: { lat: number; lng: number };
@@ -38,9 +49,11 @@ export function WorldMap({
   className?: string;
   intensity?: number;
   radar?: boolean;
+  lock?: MapLock | null;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const state = useRef({ center, zoom, pins, radar, cur: { ...center, zoom } });
+  const state = useRef({ center, zoom, pins, radar, lock, cur: { ...center, zoom } });
+  state.current.lock = lock;
   state.current.center = center;
   state.current.zoom = zoom;
   state.current.pins = pins;
@@ -118,8 +131,94 @@ export function WorldMap({
         }
         ctx.stroke();
       }
-      // radar range rings around the leading pin (documentary-style targeting)
       const dpr = Math.min(2, window.devicePixelRatio || 1);
+      // graticule when zoomed in (gives the close-up its "survey grid" look)
+      if (s.cur.zoom > 2.2) {
+        const step = s.cur.zoom > 14 ? 0.25 : s.cur.zoom > 7 ? 1 : s.cur.zoom > 3.5 ? 5 : 10;
+        const a = Math.min(0.22, (s.cur.zoom - 2.2) * 0.08);
+        ctx.strokeStyle = `rgba(89,212,232,${a})`;
+        ctx.lineWidth = dpr * 0.8;
+        ctx.font = `${Math.round(9 * dpr)}px ui-monospace, monospace`;
+        ctx.fillStyle = `rgba(89,212,232,${a * 2.2})`;
+        const spanLng = W / scale / 2 + step;
+        const spanLat = H / scale / 2 / 1.12 + step;
+        for (let lng = Math.floor((s.cur.lng - spanLng) / step) * step; lng <= s.cur.lng + spanLng; lng += step) {
+          const [x] = proj(s.cur.lat, lng);
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, H);
+          ctx.stroke();
+          ctx.fillText(`${Math.abs(lng).toFixed(step < 1 ? 2 : 0)}°${lng >= 0 ? "E" : "W"}`, x + 4 * dpr, H - 8 * dpr);
+        }
+        for (let lat = Math.floor((s.cur.lat - spanLat) / step) * step; lat <= s.cur.lat + spanLat; lat += step) {
+          const [, y] = proj(lat, s.cur.lng);
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(W, y);
+          ctx.stroke();
+          ctx.fillText(`${Math.abs(lat).toFixed(step < 1 ? 2 : 0)}°${lat >= 0 ? "N" : "S"}`, 6 * dpr, y - 4 * dpr);
+        }
+      }
+      // target lock: brackets converge on the hypothesis, coordinates count in
+      if (s.lock) {
+        const L = s.lock;
+        const [tx, ty] = proj(L.lat, L.lng);
+        const age = (now - L.t0) / 1000;
+        const conv = reduce ? 1 : Math.min(1, age / 1.6);
+        const ease = 1 - Math.pow(1 - conv, 3);
+        const base = Math.min(W, H);
+        const half = base * (0.42 - 0.36 * ease);
+        const arm = half * 0.38;
+        const col = L.confirmed === false ? "255,190,90" : "255,90,90";
+        ctx.strokeStyle = `rgba(${col},${0.5 + 0.5 * ease})`;
+        ctx.lineWidth = 2 * dpr;
+        for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+          const cx = tx + sx * half;
+          const cy = ty + sy * half;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - sy * arm);
+          ctx.lineTo(cx, cy);
+          ctx.lineTo(cx - sx * arm, cy);
+          ctx.stroke();
+        }
+        // crosshair lines out to the frame edges
+        ctx.strokeStyle = `rgba(${col},${0.18 * ease})`;
+        ctx.lineWidth = dpr;
+        ctx.setLineDash([4 * dpr, 6 * dpr]);
+        ctx.beginPath();
+        ctx.moveTo(0, ty);
+        ctx.lineTo(tx - half, ty);
+        ctx.moveTo(tx + half, ty);
+        ctx.lineTo(W, ty);
+        ctx.moveTo(tx, 0);
+        ctx.lineTo(tx, ty - half);
+        ctx.moveTo(tx, ty + half);
+        ctx.lineTo(tx, H);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // expanding ping once locked
+        if (conv >= 1) {
+          const ping = ((age - 1.6) % 1.4) / 1.4;
+          ctx.strokeStyle = `rgba(${col},${0.7 * (1 - ping)})`;
+          ctx.lineWidth = 1.5 * dpr;
+          ctx.beginPath();
+          ctx.arc(tx, ty, 6 * dpr + ping * base * 0.12, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // coordinate readout (digits scramble until locked)
+        const fmt = (v: number, pos: string, neg: string) => `${Math.abs(v).toFixed(4)}°${v >= 0 ? pos : neg}`;
+        const jitter = (v: number) => (conv < 1 ? v + (Math.random() - 0.5) * (1 - conv) * 40 : v);
+        ctx.font = `600 ${Math.round(12 * dpr)}px ui-monospace, monospace`;
+        ctx.fillStyle = `rgba(${col},0.95)`;
+        const tx2 = tx + half + 10 * dpr;
+        ctx.fillText(L.label.toUpperCase().slice(0, 40), tx2, ty - half + 12 * dpr);
+        ctx.font = `${Math.round(11 * dpr)}px ui-monospace, monospace`;
+        ctx.fillStyle = "rgba(238,241,244,0.85)";
+        ctx.fillText(`${fmt(jitter(L.lat), "N", "S")}  ${fmt(jitter(L.lng), "E", "W")}`, tx2, ty - half + 28 * dpr);
+        ctx.fillStyle = `rgba(${col},0.8)`;
+        ctx.fillText(conv < 1 ? "ACQUIRING…" : L.confirmed === false ? "UNCONFIRMED ESTIMATE" : "MAP-CONFIRMED", tx2, ty - half + 44 * dpr);
+      }
+      // radar range rings around the leading pin (documentary-style targeting)
       const lead = s.pins.find((p) => p.strong);
       if (s.radar && lead) {
         const [lx, ly] = proj(lead.lat, lead.lng);

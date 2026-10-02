@@ -5,7 +5,7 @@ import { compact, hostOf, norm, nowIso, pLimit, textSupport, uid, uniqBy, yearOf
 import { fetchJson } from "./http";
 import type { ProviderContext } from "./settings";
 import { classify, getEntities, getLabels, nameHistory, type EntityClass, type WDEntity } from "@/lib/providers/wikidata";
-import { commonsImages, gdelt, searchHistoricalNewspapers, wikipediaSummary, webProviders, youtube, brave } from "@/lib/providers/search";
+import { commonsImages, gdelt, searchHistoricalNewspapers, wikipediaSummary, webProviders, youtube, brave, duckduckgo, wikipedia, openverseImages, internetArchive } from "@/lib/providers/search";
 import { mapProvider } from "@/lib/providers/maps";
 import type { ProviderResult, WebHit } from "@/lib/providers/types";
 
@@ -89,27 +89,37 @@ function webHitsToDelta(delta: ResearchDelta, query: SearchQuery, hits: WebHit[]
 export async function runSearch(req: SearchRequest, ctx: ProviderContext): Promise<ResearchDelta> {
   const d = emptyDelta();
   const officialOnly = req.officialOnly || ctx.prefs.officialSourcesOnly;
-  if (req.kind === "web" || req.kind === "knowledge") {
-    const providers = webProviders(ctx);
-    for (const p of providers.slice(0, 2)) {
-      const query = { ...q(req.branch, req.query, "web", p.id), userAdded: req.userAdded };
-      const r = await p.searchWeb!(req.query, 8);
+  // fan out to several independent providers in parallel and merge (deduplicated by URL)
+  const fanOut = async (kind: SearchQuery["kind"], cat: SourceCategory, jobs: { id: string; run: () => Promise<ProviderResult<WebHit>> }[]) => {
+    const seen = new Set<string>();
+    const results = await Promise.all(jobs.map(async (j) => ({ j, r: await j.run() })));
+    for (const { j, r } of results) {
+      const query = { ...q(req.branch, req.query, kind, j.id), userAdded: req.userAdded };
       finishQuery(query, r);
       d.queries.push(query);
-      webHitsToDelta(d, query, r.items, "reference", officialOnly);
-      if (r.status === "ok") break;
+      const fresh = r.items.filter((h) => {
+        const k = h.url.replace(/^https?:\/\/(www\.)?/, "").replace(/[#?].*$/, "").replace(/\/$/, "");
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      webHitsToDelta(d, query, fresh, cat, officialOnly);
     }
+  };
+  if (req.kind === "web" || req.kind === "knowledge") {
+    const paid = webProviders(ctx).filter((p) => p.id !== "wikipedia").slice(0, 2);
+    await fanOut("web", "reference", [
+      ...paid.map((p) => ({ id: p.id, run: () => p.searchWeb!(req.query, 8) })),
+      { id: "duckduckgo", run: () => duckduckgo.searchWeb!(req.query, 10) },
+      { id: "wikipedia", run: () => wikipedia.searchWeb!(req.query, 6) },
+    ]);
   } else if (req.kind === "news") {
     const b = brave(ctx);
-    const provs = [b.configured() ? b : null, gdelt].filter(Boolean) as (typeof gdelt)[];
-    for (const p of provs) {
-      const query = { ...q(req.branch, req.query, "news", p.id), userAdded: req.userAdded };
-      const r = await p.searchNews!(req.query, 8);
-      finishQuery(query, r);
-      d.queries.push(query);
-      webHitsToDelta(d, query, r.items, "news", officialOnly);
-      if (r.status === "ok") break;
-    }
+    await fanOut("news", "news", [
+      ...(b.configured() ? [{ id: b.id, run: () => b.searchNews!(req.query, 8) }] : []),
+      { id: "gdelt", run: () => gdelt.searchNews!(req.query, 8) },
+      { id: "duckduckgo", run: () => duckduckgo.searchNews!(req.query, 8) },
+    ]);
   } else if (req.kind === "videos") {
     const yt = youtube(ctx);
     const b = brave(ctx);
@@ -126,29 +136,33 @@ export async function runSearch(req: SearchRequest, ctx: ProviderContext): Promi
       webHitsToDelta(d, query, r.items, "videos", officialOnly);
     }
   } else if (req.kind === "history") {
-    const query = { ...q(req.branch, req.query, "history", "loc"), userAdded: req.userAdded };
-    const r = await searchHistoricalNewspapers(req.query, 8);
-    finishQuery(query, r);
-    d.queries.push(query);
-    webHitsToDelta(d, query, r.items, "government");
+    await fanOut("history", "government", [
+      { id: "loc", run: () => searchHistoricalNewspapers(req.query, 8) },
+      { id: "internet-archive", run: () => internetArchive(req.query, 8) },
+    ]);
   } else if (req.kind === "images") {
-    const query = { ...q(req.branch, req.query, "images", "wikimedia-commons"), userAdded: req.userAdded };
-    const r = await commonsImages(req.query, 10);
-    finishQuery(query, r);
-    d.queries.push(query);
-    for (const im of r.items) {
-      const src = makeSource({
-        title: im.title,
-        url: im.url,
-        provider: "wikimedia-commons",
-        publisher: "Wikimedia Commons",
-        category: "images",
-        type: "image",
-        excerpt: `${im.license || "license on page"}${im.author ? ` · ${im.author}` : ""}`,
-        reliability: { tier: "secondary", note: "Community-uploaded photo; captions are user-supplied." },
-      });
-      d.sources.push(src);
-      d.results.push({ id: uid("r"), queryId: query.id, title: im.title, url: im.url, snippet: src.excerpt, thumbnail: im.thumb, sourceId: src.id });
+    const [commons, ov] = await Promise.all([commonsImages(req.query, 10), openverseImages(req.query, 10)]);
+    const seen = new Set<string>();
+    for (const [provider, publisher, r] of [["wikimedia-commons", "Wikimedia Commons", commons], ["openverse", "Openverse", ov]] as const) {
+      const query = { ...q(req.branch, req.query, "images", provider), userAdded: req.userAdded };
+      finishQuery(query, r);
+      d.queries.push(query);
+      for (const im of r.items) {
+        if (seen.has(im.imageUrl)) continue;
+        seen.add(im.imageUrl);
+        const src = makeSource({
+          title: im.title,
+          url: im.url,
+          provider,
+          publisher: provider === "openverse" ? hostOf(im.url) || publisher : publisher,
+          category: "images",
+          type: "image",
+          excerpt: `${im.license || "license on page"}${im.author ? ` · ${im.author}` : ""}`,
+          reliability: { tier: "secondary", note: "Openly licensed photo; captions are user-supplied." },
+        });
+        d.sources.push(src);
+        d.results.push({ id: uid("r"), queryId: query.id, title: im.title, url: im.url, snippet: src.excerpt, thumbnail: im.thumb, sourceId: src.id });
+      }
     }
   }
   return d;
@@ -811,6 +825,33 @@ export async function candidateImages(name: string, city: string | undefined, ca
     }
     if (images.length >= 8) break;
   }
+  // too few from Commons → widen to Openverse (Flickr and other openly licensed collections)
+  if (images.length < 4) {
+    const text = `${name}${city ? ` ${city}` : ""}`;
+    const query = q("visual-search", text, "images", "openverse");
+    const r = await openverseImages(text, 10);
+    finishQuery(query, r);
+    d.queries.push(query);
+    const tokens = Array.from(new Set([name, ...aliases].flatMap((n) => norm(n).split(" ")).filter((t) => t.length >= 4 && !["arena", "stadium", "center", "centre", "hotel", "street", "the", "park", "hall"].includes(t))));
+    for (const im of r.items) {
+      if (images.some((x) => x.url === im.url || x.thumb === im.thumb)) continue;
+      if (tokens.length && !tokens.some((t) => norm(im.title).includes(t))) continue;
+      const src = makeSource({
+        title: im.title,
+        url: im.url,
+        provider: "openverse",
+        publisher: hostOf(im.url) || "Openverse",
+        category: "images",
+        type: "image",
+        excerpt: `${im.license || "see license on page"}${im.author ? ` · ${im.author}` : ""}`,
+        reliability: { tier: "secondary", note: "Reference photo; title is user-supplied." },
+        why: `Reference photo retrieved to visually compare against candidate ${name}.`,
+      });
+      d.sources.push(src);
+      images.push({ candidateName: name, title: im.title, url: im.url, thumb: im.thumb, license: im.license, sourceId: src.id });
+      if (images.length >= 8) break;
+    }
+  }
   return { ...d, images: images.slice(0, 10) };
 }
 
@@ -841,3 +882,168 @@ export async function verifyCandidates(req: VerifyRequest, ctx: ProviderContext)
 }
 
 export type { SearchQuery, SearchResult, Source };
+
+// ---------------------------------------------------------------------------
+// AI geolocation: verify a model's location hypothesis against map data + real web results
+// ---------------------------------------------------------------------------
+
+export interface GeoGuessInput {
+  name: string;
+  address?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  precision: string;
+  confidence: number;
+  reasoning: string;
+  keyClues: string[];
+  searchQuery?: string;
+  model: string;
+  rank: number;
+}
+
+async function photonGeocode(text: string) {
+  try {
+    const { data } = await fetchJson<{ features?: { geometry: { coordinates: [number, number] }; properties: { name?: string; city?: string; state?: string; country?: string; osm_type?: string; osm_id?: number; type?: string } }[] }>(
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(text)}&limit=1`,
+      { provider: "photon", op: "geocode", cacheTtl: 7 * 86400, timeoutMs: 7000 },
+    );
+    const f = data.features?.[0];
+    if (!f) return null;
+    const p = f.properties;
+    const osm = p.osm_type && p.osm_id ? `${{ N: "node", W: "way", R: "relation" }[p.osm_type] || "node"}/${p.osm_id}` : undefined;
+    return {
+      name: p.name || text,
+      displayName: [p.name, p.city, p.state, p.country].filter(Boolean).join(", "),
+      lat: f.geometry.coordinates[1],
+      lng: f.geometry.coordinates[0],
+      kind: p.type || "place",
+      url: osm ? `https://www.openstreetmap.org/${osm}` : `https://www.openstreetmap.org/?mlat=${f.geometry.coordinates[1]}&mlon=${f.geometry.coordinates[0]}#map=16/${f.geometry.coordinates[1]}/${f.geometry.coordinates[0]}`,
+      osmRef: osm,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const PRECISION_KM: Record<string, number> = { exact: 3, street: 6, neighbourhood: 12, city: 40, region: 250, country: 1500 };
+
+export async function verifyGeoGuess(g: GeoGuessInput, ctx: ProviderContext): Promise<ResearchDelta> {
+  const d = emptyDelta();
+  const maps = mapProvider(ctx);
+  const where = [g.city, g.region, g.country].filter(Boolean).join(", ");
+  const lookups = uniqBy(
+    [
+      g.precision === "exact" || g.precision === "street" ? [g.name, g.city, g.country].filter(Boolean).join(", ") : "",
+      g.address || "",
+      g.precision === "region" || g.precision === "country" ? where || g.name : [g.name, where].filter(Boolean).join(", "),
+      where,
+    ].filter((x) => x.trim().length >= 3),
+    (s) => compact(s),
+  ).slice(0, 2);
+
+  // 1. map check: Nominatim (or Google), then Photon as a second opinion
+  let hit: { name: string; displayName: string; lat: number; lng: number; kind: string; url: string; osmRef?: string } | null = null;
+  let provider = maps.id;
+  for (const text of lookups) {
+    const query = q("ai-geolocation", `Map check for AI hypothesis: ${text}`, "maps", maps.id);
+    const r = await maps.geocode(text, 1);
+    finishQuery(query, r);
+    d.queries.push(query);
+    if (r.items[0]) {
+      hit = r.items[0];
+      break;
+    }
+  }
+  if (!hit && lookups[0]) {
+    const query = q("ai-geolocation", `Map check (Photon) for: ${lookups[0]}`, "maps", "photon");
+    const p = await photonGeocode(lookups[0]);
+    query.status = p ? "ok" : "empty";
+    query.resultCount = p ? 1 : 0;
+    d.queries.push(query);
+    if (p) {
+      hit = p;
+      provider = "photon";
+    }
+  }
+  const aiPoint = g.lat != null && g.lng != null && Math.abs(g.lat) <= 90 && Math.abs(g.lng) <= 180 ? { lat: g.lat, lng: g.lng } : null;
+  const tol = PRECISION_KM[g.precision] ?? 40;
+  const km = hit && aiPoint ? haversine(hit, aiPoint) : null;
+  const confirmed = Boolean(hit) && (km === null || km <= tol);
+
+  // 2. real web results that mention the hypothesis (sources come only from search engines, never from the model)
+  const wq = (g.searchQuery || [g.name, g.city || g.country].filter(Boolean).join(" ")).slice(0, 200);
+  const webQuery = q("ai-geolocation", wq, "web", "duckduckgo");
+  const web = await duckduckgo.searchWeb!(wq, 6);
+  finishQuery(webQuery, web);
+  d.queries.push(webQuery);
+  webHitsToDelta(d, webQuery, web.items, "reference");
+  const webIds = d.sources.map((s) => s.id);
+
+  const point = confirmed && hit ? hit : aiPoint;
+  if (!point) return d;
+  const mapSrc = hit
+    ? makeSource({
+        title: `${hit.name} — ${provider === "photon" ? "OpenStreetMap (Photon)" : provider === "osm-nominatim" ? "OpenStreetMap" : provider}`,
+        url: hit.url,
+        provider,
+        category: "maps",
+        type: "map",
+        publisher: provider === "google-maps" ? "Google Maps Platform" : "OpenStreetMap contributors",
+        excerpt: hit.displayName,
+        supports: [`${hit.name} is located at ${hit.lat.toFixed(4)}, ${hit.lng.toFixed(4)}`],
+        reliability: { tier: "secondary", note: "Map database record used to check the AI's location estimate." },
+        usedInReasoning: true,
+      })
+    : null;
+  if (mapSrc) d.sources.push(mapSrc);
+  const loc: GeoLocation = {
+    id: uid("loc"),
+    name: g.name,
+    address: hit?.displayName || [g.address, where].filter(Boolean).join(", ") || undefined,
+    lat: point.lat,
+    lng: point.lng,
+    kind: `ai-${g.precision}`,
+    osmRef: hit?.osmRef,
+    sourceIds: mapSrc ? [mapSrc.id] : [],
+  };
+  d.locations!.push(loc);
+  const strength = Math.max(0.05, Math.min(0.95, g.confidence)) * (confirmed ? 1 : 0.55) * (g.precision === "country" ? 0.6 : g.precision === "region" ? 0.75 : 1);
+  const note = confirmed
+    ? `Map data confirms a place called “${hit!.name}”${km !== null ? ` ${km < 1 ? "at" : `${km.toFixed(1)} km from`} the AI's estimate` : ""}.`
+    : hit
+      ? `Map data found “${hit.name}”, but ${km!.toFixed(0)} km from the AI's estimate — treat as unconfirmed.`
+      : "Map data could not confirm this place; the position is the AI's own estimate.";
+  d.candidates!.push({
+    id: uid("cand"),
+    name: g.name,
+    kind: g.precision === "exact" ? hit?.kind || "place" : g.precision,
+    locationId: loc.id,
+    city: g.city || undefined,
+    region: g.region || undefined,
+    country: g.country || undefined,
+    address: loc.address,
+    names: [{ name: g.name }],
+    why: [`AI geolocation (${g.model}, hypothesis #${g.rank + 1}, ${Math.round(g.confidence * 100)}% self-reported): ${g.reasoning}`, note],
+    against: confirmed ? [] : [note],
+    evidenceIds: [],
+    sourceIds: [...(mapSrc ? [mapSrc.id] : []), ...webIds.slice(0, 4)],
+    signals: { text: null, logo: null, visual: null, geo: null, temporal: null, source: null, exif: null, link: null, ai: strength },
+    confidence: "insufficient",
+    confidenceReasons: [],
+    status: "active",
+    images: [],
+    derivedFrom: ["AI geolocation", ...g.keyClues.slice(0, 4)],
+  });
+  return d;
+}
+
+function haversine(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}

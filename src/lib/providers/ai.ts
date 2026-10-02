@@ -18,6 +18,28 @@ export interface AIProvider {
   analyzeImage(img: { base64: string; mime: string }, opts: { mode: string; focus?: string; instructions?: string }): Promise<AiVisionResult>;
   compareImages(a: { base64: string; mime: string }, b: { base64: string; mime: string }, context: string): Promise<AiComparison>;
   explainEvidence(factsJson: string): Promise<AiExplanation>;
+  /** Proposes where the image was taken. Output is a hypothesis: coordinates are re-checked against map data and sources come only from real searches. */
+  geolocate(imgs: { base64: string; mime: string }[], cluesText: string): Promise<AiGeolocation>;
+}
+
+export interface AiGeoGuess {
+  name: string;
+  address: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  lat: number | null;
+  lng: number | null;
+  precision: "exact" | "street" | "neighbourhood" | "city" | "region" | "country";
+  confidence: number;
+  reasoning: string;
+  keyClues: string[];
+  searchQuery: string;
+}
+
+export interface AiGeolocation {
+  locations: AiGeoGuess[];
+  overall: string;
 }
 
 export interface AiComparison {
@@ -59,6 +81,40 @@ const CompareSchema = z.object({
 });
 
 const ExplainSchema = z.object({ explanation: z.string(), nextSteps: z.array(z.string()) });
+
+const GeoSchema = z.object({
+  locations: z
+    .array(
+      z.object({
+        name: z.string(),
+        address: z.string().nullable().default(null),
+        city: z.string().nullable().default(null),
+        region: z.string().nullable().default(null),
+        country: z.string().nullable().default(null),
+        lat: z.number().nullable().default(null),
+        lng: z.number().nullable().default(null),
+        precision: z.enum(["exact", "street", "neighbourhood", "city", "region", "country"]).catch("city"),
+        confidence: z.number().min(0).max(1).catch(0.3),
+        reasoning: z.string().default(""),
+        keyClues: z.array(z.string()).default([]),
+        searchQuery: z.string().default(""),
+      }),
+    )
+    .default([]),
+  overall: z.string().default(""),
+});
+const GEO_SHAPE = `{"locations":[{"name":string,"address":string|null,"city":string|null,"region":string|null,"country":string|null,"lat":number|null,"lng":number|null,"precision":"exact"|"street"|"neighbourhood"|"city"|"region"|"country","confidence":number(0-1),"reasoning":string,"keyClues":[string],"searchQuery":string}],"overall":string}`;
+const geoPrompt = (cluesText: string) => `You are geolocating the image(s) above, like an expert OSINT geolocator (GeoGuessr-level skill).
+Use EVERY clue: readable text and languages/scripts, business names, logos and sponsors, team branding, flags, phone-number and address formats, licence plates (format/colour only), road markings, signage style, driving side, bollards, utility poles, architecture, vegetation, terrain, climate, sun/shadows, and any landmark you recognise.
+Clues already extracted by other tools (may contain OCR errors):
+${cluesText || "(none)"}
+
+Return up to 5 ranked location hypotheses, most specific first (a named venue/building/street if you can, otherwise neighbourhood, city, region or country).
+- Give your best-estimate coordinates (decimal degrees) for each, or null if you truly cannot.
+- confidence is your honest probability (0-1) that this hypothesis is correct; never overstate it.
+- reasoning: 1-3 sentences citing the specific visible clues. keyClues: the 2-6 clues that matter most.
+- searchQuery: one web search query that would verify the hypothesis.
+- Do not identify private individuals or private homes. Do not invent sources or URLs.`;
 
 const SYSTEM = `You are the vision and reasoning component of TRACE, a responsible visual-investigation tool for identifying PUBLIC places, venues, buildings, organizations, objects and documents.
 Rules:
@@ -134,11 +190,16 @@ Extract EVERY useful clue for identifying where/what this is: all legible text (
         },
       ], 2000);
     },
+    async geolocate(imgs, cluesText) {
+      const r = await parse("geolocate", GeoSchema, [...imgs.slice(0, 3).map(imgBlock), { type: "text", text: geoPrompt(cluesText) }], 3000);
+      return r as AiGeolocation;
+    },
   };
 }
 
 // ---------------- Google Gemini (free tier available via Google AI Studio) ----------------
-const GEMINI_MODELS = (process.env.GEMINI_MODELS || "gemini-3.5-flash,gemini-3-flash-preview,gemini-3.1-flash-lite,gemini-flash-lite-latest").split(",");
+// ordered by quality-per-second on the free tier; a busy model is skipped quickly (see per-attempt timeout)
+const GEMINI_MODELS = (process.env.GEMINI_MODELS || "gemini-3-flash-preview,gemini-3.5-flash,gemini-3.1-flash-lite,gemini-flash-lite-latest").split(",");
 
 export function geminiProvider(ctx: ProviderContext): AIProvider {
   const key = ctx.secrets.GEMINI_API_KEY?.trim();
@@ -147,7 +208,11 @@ export function geminiProvider(ctx: ProviderContext): AIProvider {
     if (!key) throw new Error("Gemini is not configured. Set GEMINI_API_KEY.");
     const started = Date.now();
     let lastErr = "";
-    for (const model of GEMINI_MODELS) {
+    for (const [i, model] of GEMINI_MODELS.entries()) {
+      const left = 24000 - (Date.now() - started); // stay inside the serverless request limit
+      if (left < 4000) break;
+      // overloaded models can hang for ~50 s before answering "high demand": cap each attempt so the next model gets a turn
+      const budget = i === GEMINI_MODELS.length - 1 ? left : Math.min(left - 3000, 11000);
       try {
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
           method: "POST",
@@ -155,9 +220,9 @@ export function geminiProvider(ctx: ProviderContext): AIProvider {
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: SYSTEM }] },
             contents: [{ role: "user", parts: [...parts, { text: `Respond ONLY with JSON matching this shape (use null or [] when absent):\n${shape}` }] }],
-            generationConfig: { responseMimeType: "application/json", temperature: 0.2 },
+            generationConfig: { responseMimeType: "application/json", temperature: 0.2, thinkingConfig: { thinkingLevel: "low" } },
           }),
-          signal: AbortSignal.timeout(22000),
+          signal: AbortSignal.timeout(budget),
         });
         const j = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: number }; candidates?: { content?: { parts?: { text?: string }[] } }[]; usageMetadata?: { totalTokenCount?: number } };
         if (!res.ok || j.error) {
@@ -226,6 +291,9 @@ Extract EVERY useful clue for identifying where/what this is: all legible text (
       return generate("explainEvidence", ExplainSchema, [
         { text: `Write a plain-language explanation (4-7 sentences) of this investigation's current state using ONLY these facts. Distinguish direct evidence, indirect evidence, inference and user-provided information; state uncertainty honestly; add no new facts. Then list 2-5 next steps.\n\nFACTS (JSON):\n${factsJson}` },
       ], `{"explanation":string,"nextSteps":[string]}`);
+    },
+    async geolocate(imgs, cluesText) {
+      return (await generate("geolocate", GeoSchema, [...imgs.slice(0, 3).map(img), { text: geoPrompt(cluesText) }], GEO_SHAPE)) as AiGeolocation;
     },
   };
 }

@@ -1,10 +1,10 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { AlertTriangle, BookMarked, Check, FastForward, MessageSquare, Network, Pause, Play, RotateCcw, X } from "lucide-react";
 import { useWorkspace, ws } from "@/lib/client/store";
 import { PHASES } from "@/lib/engine/runner";
-import { WorldMap, type MapPin } from "@/components/WorldMap";
+import { WorldMap, type MapLock, type MapPin } from "@/components/WorldMap";
 import { ConfidenceBadge, cn } from "@/components/ui";
 import { imageUrl, proxied } from "@/lib/client/api";
 import type { Box, Clue } from "@/lib/types";
@@ -24,6 +24,15 @@ export function Cinematic() {
   const reduced = animation === "reduced";
   const [d, setD] = useState(0);
   const [tick, setTick] = useState(0);
+  // after each new location fix, clear the stage for a few seconds so the map lock-on is visible
+  const locateCount = useWorkspace((s) => s.locates.length);
+  const [holdStage, setHoldStage] = useState(false);
+  useEffect(() => {
+    if (!locateCount || reduced) return;
+    setHoldStage(true);
+    const id = setTimeout(() => setHoldStage(false), 5200);
+    return () => clearTimeout(id);
+  }, [locateCount, reduced]);
 
   const target = running && !cine.replay ? Math.max(0, PHASES.findIndex((p) => p.id === phase)) : PHASES.length - 1;
   // restart on new run/replay
@@ -114,8 +123,8 @@ export function Cinematic() {
         <AnimatePresence mode="wait">
           {d <= 2 && image && <ImageStage key="img" phase={d} tick={tick} clues={clues} reduced={reduced} />}
           {d === 3 && <SearchStage key="search" reduced={reduced} />}
-          {d === 4 && <CandidateStage key="cands" />}
-          {d === 5 && <MatchStage key="match" compares={compares} />}
+          {d === 4 && !holdStage && <CandidateStage key="cands" />}
+          {d === 5 && !holdStage && <MatchStage key="match" compares={compares} />}
           {d === 6 && <CaseStage key="case" />}
           {d === 7 && <ResultStage key="result" onClose={close} running={running} />}
         </AnimatePresence>
@@ -175,8 +184,40 @@ function HudBtn({ children, label, onClick }: { children: React.ReactNode; label
   );
 }
 
+const PRECISION_ZOOM: Record<string, number> = { exact: 15, street: 13, neighbourhood: 10, city: 7.5, region: 4.2, country: 2.8 };
+
+/** Possible locations to "lock on" to: live AI geolocation fixes, or (on replay) the AI candidates saved in the case. */
+function useLocks() {
+  const inv = useWorkspace((s) => s.inv)!;
+  const live = useWorkspace((s) => s.locates);
+  return useMemo(() => {
+    if (live.length) return live.map((l) => ({ ...l, label: l.name }));
+    return inv.candidates
+      .map((c) => ({ c, l: inv.locations.find((l) => l.id === c.locationId) }))
+      .filter((x) => x.l && (x.c.signals.ai ?? 0) > 0)
+      .map(({ c, l }) => ({ name: c.name, label: c.name, lat: l!.lat, lng: l!.lng, precision: l!.kind.startsWith("ai-") ? l!.kind.slice(3) : "exact", confidence: c.signals.ai ?? 0, confirmed: !c.against.some((a) => /could not confirm|unconfirmed/i.test(a)) }));
+  }, [live, inv.candidates, inv.locations]);
+}
+
 function CinemaMap({ phase }: { phase: number }) {
   const inv = useWorkspace((s) => s.inv)!;
+  const locks = useLocks();
+  const [li, setLi] = useState(0);
+  const t0 = useRef(0);
+  const lockPhase = phase === 4 || phase === 5;
+  useEffect(() => {
+    if (!lockPhase || locks.length < 2) return;
+    const id = setInterval(() => setLi((i) => i + 1), 4600);
+    return () => clearInterval(id);
+  }, [lockPhase, locks.length]);
+  const cur = lockPhase && locks.length ? locks[li % locks.length] : null;
+  const curKey = cur ? `${cur.name}|${li % locks.length}` : "";
+  const lastKey = useRef("");
+  if (curKey !== lastKey.current) {
+    lastKey.current = curKey;
+    t0.current = typeof performance !== "undefined" ? performance.now() : 0;
+  }
+  const lock: MapLock | null = cur ? { lat: cur.lat, lng: cur.lng, label: cur.label, t0: t0.current, confirmed: cur.confirmed } : null;
   const pins: MapPin[] = useMemo(
     () =>
       inv.candidates
@@ -186,14 +227,40 @@ function CinemaMap({ phase }: { phase: number }) {
     [inv.candidates, inv.locations, phase],
   );
   const lead = pins.find((p) => p.strong) || pins[0];
-  const center = phase >= 4 && lead ? { lat: lead.lat, lng: lead.lng } : { lat: 22, lng: phase * 25 - 60 };
-  const zoom = phase === 4 ? (pins.length > 1 ? spreadZoom(pins) : 5) : phase >= 5 && lead ? 6 : 1.15;
+  const center = lock ? { lat: lock.lat, lng: lock.lng } : phase >= 4 && lead ? { lat: lead.lat, lng: lead.lng } : { lat: 22, lng: phase * 25 - 60 };
+  const zoom = cur ? PRECISION_ZOOM[cur.precision] ?? 7 : phase === 4 ? (pins.length > 1 ? spreadZoom(pins) : 5) : phase >= 5 && lead ? 6 : 1.15;
   return (
     <>
-      <WorldMap className={cn("absolute inset-0 h-full w-full transition-opacity duration-1000", phase >= 4 ? "opacity-100" : "opacity-45")} pins={phase >= 4 ? pins : []} center={center} zoom={zoom} drift={phase < 4} arcs={phase === 3 ? 14 : 5} intensity={phase >= 4 ? 1.6 : 1} radar={phase === 4 || phase === 5} />
+      <WorldMap className={cn("absolute inset-0 h-full w-full transition-opacity duration-1000", phase >= 4 ? "opacity-100" : "opacity-45")} pins={phase >= 4 ? pins.filter((p) => !lock || Math.abs(p.lat - lock.lat) > 1e-4 || Math.abs(p.lng - lock.lng) > 1e-4) : []} center={center} zoom={zoom} drift={phase < 4} arcs={phase === 3 ? 14 : 5} intensity={phase >= 4 ? 1.6 : 1} radar={!lock && (phase === 4 || phase === 5)} lock={lock} />
       {/* teal duotone grade for the geographic phases */}
       <div className={cn("pointer-events-none absolute inset-0 transition-opacity duration-1000", phase === 4 || phase === 5 ? "opacity-100" : "opacity-0")} style={{ background: "radial-gradient(ellipse at 50% 55%, rgba(110,220,200,0.16), rgba(10,40,36,0.35) 60%, rgba(0,0,0,0.6))", mixBlendMode: "screen" }} />
+      <AnimatePresence mode="wait">{cur && <LockCard key={curKey} lock={cur} index={li % locks.length} total={locks.length} />}</AnimatePresence>
     </>
+  );
+}
+
+/** HUD card for the location currently locked on. */
+function LockCard({ lock, index, total }: { lock: { name: string; precision: string; confidence: number; confirmed: boolean; lat: number; lng: number }; index: number; total: number }) {
+  const pct = Math.round(lock.confidence * 100);
+  return (
+    <motion.div initial={{ opacity: 0, x: 40, filter: "blur(6px)" }} animate={{ opacity: 1, x: 0, filter: "blur(0px)" }} exit={{ opacity: 0, x: 40 }} transition={{ duration: 0.5 }} className="pointer-events-none absolute right-4 top-24 z-20 w-[min(320px,80vw)] border border-signal/50 bg-black/75 p-3 backdrop-blur md:right-6">
+      <div className="flex items-center justify-between">
+        <span className="label-mono !text-[9.5px] text-signal">⌖ POSSIBLE LOCATION {index + 1}/{total}</span>
+        <span className={cn("label-mono !text-[9px]", lock.confirmed ? "text-ok" : "text-warn")}>{lock.confirmed ? "MAP-CONFIRMED" : "AI ESTIMATE"}</span>
+      </div>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.9 }} className="mt-1.5 text-[15px] font-semibold leading-tight">
+        {lock.name}
+      </motion.div>
+      <div className="mt-1 font-mono text-[10.5px] text-dim">
+        {lock.lat.toFixed(4)}, {lock.lng.toFixed(4)} · {lock.precision} precision
+      </div>
+      <div className="mt-2.5 flex items-center gap-2">
+        <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/10">
+          <motion.div className={cn("h-full", lock.confirmed ? "bg-signal" : "bg-warn")} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ delay: 0.6, duration: 1.4, ease: "easeOut" }} />
+        </div>
+        <span className="font-mono text-[10px] text-dim">{pct}% AI</span>
+      </div>
+    </motion.div>
   );
 }
 

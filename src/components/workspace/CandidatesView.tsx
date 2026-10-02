@@ -15,6 +15,7 @@ const SIG_LABEL: Record<keyof CandidateSignals, string> = {
   temporal: "Temporal consistency",
   source: "Source support",
   exif: "Photo GPS",
+  ai: "AI geolocation",
 };
 
 function sigWord(v: number | null) {
@@ -103,7 +104,7 @@ function CandidateCard({ c, n, highlight }: { c: Candidate; n: number; highlight
           <Label className="mb-2">Signals (plain language)</Label>
           <dl className="space-y-1">
             {(Object.keys(SIG_LABEL) as (keyof CandidateSignals)[]).map((k) => {
-              const s = sigWord(c.signals[k]);
+              const s = sigWord(c.signals[k] ?? null);
               return (
                 <div key={k} className="flex justify-between text-[12px]">
                   <dt className="text-dim">{SIG_LABEL[k]}</dt>

@@ -28,6 +28,8 @@ export interface WorkspaceState {
   liveClues: Clue[];
   focus: { imageId: string; box?: { x: number; y: number; w: number; h: number }; label?: string } | null;
   compares: { candidateId: string; thumb: string; overall: string }[];
+  /** live location fixes (AI geolocation hypotheses checked against the map) — drive the map/board animations */
+  locates: { name: string; lat: number; lng: number; precision: string; confidence: number; confirmed: boolean; at: number }[];
   providers: { ai: boolean; cloudVision: boolean; webKeyed: boolean } | null;
   animation: "full" | "reduced" | "off";
   tab: Tab;
@@ -50,6 +52,7 @@ const initial: WorkspaceState = {
   liveClues: [],
   focus: null,
   compares: [],
+  locates: [],
   providers: null,
   animation: "full",
   tab: "result",
@@ -142,7 +145,7 @@ export const ws = {
     abort = new AbortController();
     const mode = opts.mode || state.inv.mode;
     const showCinema = opts.cinematic !== false && state.animation !== "off";
-    set((s) => ({ running: true, phase: "ingest", steps: [], liveClues: [], compares: [], focus: null, logs: [...s.logs, { at: nowIso(), text: `Investigation started (${mode} mode)`, level: "info" }], cinematic: { ...s.cinematic, open: showCinema, replay: false, paused: false, runToken: s.cinematic.runToken + 1 } }));
+    set((s) => ({ running: true, phase: "ingest", steps: [], liveClues: [], compares: [], locates: [], focus: null, logs: [...s.logs, { at: nowIso(), text: `Investigation started (${mode} mode)`, level: "info" }], cinematic: { ...s.cinematic, open: showCinema, replay: false, paused: false, runToken: s.cinematic.runToken + 1 } }));
     const onEvent = (e: RunEvent) => {
       switch (e.type) {
         case "phase":
@@ -168,6 +171,9 @@ export const ws = {
           break;
         case "compare":
           set((s) => ({ compares: [...s.compares, e] }));
+          break;
+        case "locate":
+          set((s) => ({ locates: [...s.locates, { ...e, at: Date.now() }] }));
           break;
         case "log":
           ws.log(e.text, e.level || "info");
@@ -239,7 +245,7 @@ export const ws = {
   resetInvestigation() {
     abort?.abort();
     ws.update((inv) => ({ ...inv, status: "draft", clues: [], entities: [], candidates: [], locations: [], evidence: [], sources: [], queries: [], results: [], timeline: [], contradictions: [], chat: [], notes: [], boards: [], conclusion: undefined, focus: undefined, regions: [] }));
-    set({ steps: [], logs: [], liveClues: [], compares: [], phase: null, tab: "image", confirmReset: false, cinematic: { ...state.cinematic, open: false } });
+    set({ steps: [], logs: [], liveClues: [], compares: [], locates: [], phase: null, tab: "image", confirmReset: false, cinematic: { ...state.cinematic, open: false } });
     ws.log("Investigation reset. Images were kept; saved investigations were not deleted.");
   },
   async chat(message: string) {

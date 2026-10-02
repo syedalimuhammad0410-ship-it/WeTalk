@@ -126,7 +126,7 @@ describe("investigation reasoning (real Wikidata fixture)", () => {
     const kinds = new Set(b.nodes.map((n) => n.data.kind));
     for (const k of ["image", "clue", "entity", "candidate", "location", "source", "conclusion"]) expect(kinds.has(k as never)).toBe(true);
     expect(b.edges.some((e) => e.label === "played at")).toBe(true);
-    expect(b.edges.some((e) => e.label === "located at")).toBe(true);
+    expect(b.edges.some((e) => e.label?.startsWith("possible location") && e.kind === "string")).toBe(true);
   });
 });
 

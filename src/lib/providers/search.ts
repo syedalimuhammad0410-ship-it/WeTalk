@@ -306,3 +306,116 @@ export function webProviders(ctx: ProviderContext): SearchProvider[] {
   list.push(wikipedia);
   return list;
 }
+
+// ---------------- DuckDuckGo (keyless, whole-web results) ----------------
+const ddgCache = new Map<string, { at: number; items: WebHit[] }>();
+const decodeHtml = (s: string) =>
+  strip(s)
+    .replace(/&#x27;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ");
+
+async function ddgLite(q: string, n: number): Promise<{ items: WebHit[]; cached: boolean; ms: number }> {
+  const key = `${q}|${n}`;
+  const hit = ddgCache.get(key);
+  if (hit && Date.now() - hit.at < DAY * 1000) return { items: hit.items, cached: true, ms: 0 };
+  const started = Date.now();
+  const res = await fetch("https://lite.duckduckgo.com/lite/", {
+    method: "POST",
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; TRACE-investigations/1.0)", "Content-Type": "application/x-www-form-urlencoded" },
+    body: `q=${encodeURIComponent(q)}`,
+    signal: AbortSignal.timeout(9000),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`duckduckgo responded ${res.status}`);
+  const html = await res.text();
+  const items: WebHit[] = [];
+  // each organic result: <a ... href="URL" class='result-link'>TITLE</a> ... <td class='result-snippet'>SNIPPET</td>
+  const re = /<a[^>]+href="([^"]+)"[^>]*class='result-link'>([\s\S]*?)<\/a>[\s\S]*?<td class='result-snippet'>([\s\S]*?)<\/td>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) && items.length < n) {
+    let url = m[1].replace(/&amp;/g, "&");
+    const redirect = url.match(/[?&]uddg=([^&]+)/);
+    if (redirect) url = decodeURIComponent(redirect[1]);
+    if (url.startsWith("//")) url = `https:${url}`;
+    if (!/^https?:\/\//.test(url) || /duckduckgo\.com\/y\.js|bing\.com\/aclick/.test(url)) continue; // skip ads
+    items.push({ title: decodeHtml(m[2]), url, snippet: decodeHtml(m[3]).slice(0, 300), publisher: hostOf(url) });
+  }
+  ddgCache.set(key, { at: Date.now(), items });
+  if (ddgCache.size > 300) ddgCache.delete(ddgCache.keys().next().value!);
+  return { items, cached: false, ms: Date.now() - started };
+}
+
+export const duckduckgo: SearchProvider = {
+  id: "duckduckgo",
+  label: "DuckDuckGo web search",
+  configured: () => true,
+  async searchWeb(q, n = 8) {
+    try {
+      const { items, cached, ms } = await ddgLite(q, n);
+      return { provider: "duckduckgo", status: items.length ? "ok" : "empty", items, cached, ms };
+    } catch (e) {
+      return wrapError("duckduckgo", e);
+    }
+  },
+  async searchNews(q, n = 8) {
+    try {
+      const { items, cached, ms } = await ddgLite(`${q} news`, n);
+      return { provider: "duckduckgo", status: items.length ? "ok" : "empty", items: items.map((i) => ({ ...i, category: "news" as const })), cached, ms };
+    } catch (e) {
+      return wrapError("duckduckgo", e);
+    }
+  },
+};
+
+// ---------------- Openverse (keyless, 800M+ openly licensed images) ----------------
+export async function openverseImages(q: string, n = 8): Promise<ProviderResult<ImageHit>> {
+  try {
+    const u = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=${n}&mature=false`;
+    const { data, cached, ms } = await fetchJson<{ results?: { title: string; foreign_landing_url: string; url: string; thumbnail?: string; license: string; license_version?: string; creator?: string; width?: number; height?: number; source?: string }[] }>(u, {
+      provider: "openverse",
+      op: "images",
+      cacheTtl: 7 * DAY,
+      timeoutMs: 9000,
+    });
+    const items: ImageHit[] = (data.results || []).map((r) => ({
+      title: r.title || "Untitled image",
+      url: r.foreign_landing_url,
+      imageUrl: r.url,
+      thumb: r.thumbnail || r.url,
+      license: `CC ${r.license.toUpperCase()}${r.license_version ? ` ${r.license_version}` : ""}${r.source ? ` · via ${r.source}` : ""}`,
+      author: r.creator,
+      width: r.width,
+      height: r.height,
+    }));
+    return { provider: "openverse", status: items.length ? "ok" : "empty", items, cached, ms };
+  } catch (e) {
+    return wrapError("openverse", e);
+  }
+}
+
+// ---------------- Internet Archive (keyless: books, newspapers, photos, web history) ----------------
+export async function internetArchive(q: string, n = 8): Promise<ProviderResult<WebHit>> {
+  try {
+    const u = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}&fl[]=identifier&fl[]=title&fl[]=description&fl[]=date&fl[]=mediatype&rows=${n}&output=json`;
+    const { data, cached, ms } = await fetchJson<{ response?: { docs: { identifier: string; title?: string; description?: string | string[]; date?: string; mediatype?: string }[] } }>(u, {
+      provider: "internet-archive",
+      op: "search",
+      cacheTtl: 7 * DAY,
+      timeoutMs: 10000,
+    });
+    const items: WebHit[] = (data.response?.docs || []).map((d) => ({
+      title: d.title || d.identifier,
+      url: `https://archive.org/details/${d.identifier}`,
+      snippet: strip([d.mediatype, Array.isArray(d.description) ? d.description.join(" ") : d.description].filter(Boolean).join(" · ")).slice(0, 300),
+      publisher: "Internet Archive",
+      publishedAt: d.date,
+      category: "reference",
+    }));
+    return { provider: "internet-archive", status: items.length ? "ok" : "empty", items, cached, ms };
+  } catch (e) {
+    return wrapError("internet-archive", e);
+  }
+}

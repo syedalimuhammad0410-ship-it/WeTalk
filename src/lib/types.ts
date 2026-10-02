@@ -269,6 +269,8 @@ export interface CandidateSignals {
   source: number | null;
   exif: number | null;
   link: number | null;
+  /** AI geolocation estimate (0..1), already discounted when map data could not confirm it */
+  ai?: number | null;
 }
 
 export interface Candidate {
@@ -360,7 +362,7 @@ export interface BoardEdge {
   target: string;
   label?: string;
   manual?: boolean;
-  kind?: "supports" | "contradicts" | "relates";
+  kind?: "supports" | "contradicts" | "relates" | "string";
 }
 
 export interface Board {

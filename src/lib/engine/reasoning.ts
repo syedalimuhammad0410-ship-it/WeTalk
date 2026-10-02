@@ -5,7 +5,7 @@
 import type { Candidate, Clue, Confidence, Conclusion, Evidence, EvidenceKind, Investigation, Strength } from "@/lib/types";
 import { compact, nowIso, textSupport, uid, yearOf } from "@/lib/util";
 
-const W = { exif: 3, text: 2.6, logo: 1.6, link: 1.3, visual: 2, geo: 1, temporal: 1.2 };
+const W = { exif: 3, text: 2.6, logo: 1.6, link: 1.3, visual: 2, geo: 1, temporal: 1.2, ai: 1.5 };
 
 function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const R = 6371;
@@ -255,6 +255,13 @@ export function assess(inv: Investigation): Investigation {
       }
     }
 
+    // ---- AI geolocation estimate (a hypothesis, never direct evidence)
+    if (sig.ai) {
+      const aiWhy = c.why.find((w) => w.startsWith("AI geolocation"));
+      const st = `An AI geolocation model proposed this location${aiWhy ? ` — ${aiWhy.replace(/^AI geolocation \([^)]*\):\s*/, "")}` : ""}. This is an inference from visual clues, checked against map data.`;
+      evs.push({ kind: "inference", polarity: "supports", statement: st, strength: strengthOf(sig.ai), sourceIds: primarySrc, clueIds: [] });
+    }
+
     // ---- source contradictions about this candidate
     for (const cx of next.contradictions.filter((x) => compact(x.subject) === compact(c.name))) {
       const st = `⚠ Sources disagree about ${cx.property}: ${cx.claims.map((x) => x.value).join(" vs ")}.`;
@@ -283,6 +290,7 @@ export function assess(inv: Investigation): Investigation {
       ["visual", sig.visual],
       ["geo", sig.geo],
       ["temporal", sig.temporal],
+      ["ai", sig.ai ?? null],
     ];
     let score = 0;
     let types = 0;

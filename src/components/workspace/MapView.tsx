@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { Circle, CircleMarker, LayersControl, MapContainer, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
-import { Crosshair, ExternalLink, Landmark, MapPinPlus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import L from "leaflet";
+import { Circle, CircleMarker, LayersControl, MapContainer, Marker, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { Crosshair, ExternalLink, Landmark, MapPinPlus, Play, Search, Square, X } from "lucide-react";
 import { useWorkspace, ws } from "@/lib/client/store";
 import { api, proxied } from "@/lib/client/api";
 import { Button, ConfidenceBadge, Label, cn, inputCls } from "@/components/ui";
@@ -21,12 +22,32 @@ function FitBounds({ points }: { points: [number, number][] }) {
   return null;
 }
 
-function FlyTo({ target }: { target: [number, number] | null }) {
+function FlyTo({ target }: { target: { at: [number, number]; zoom?: number; key: number } | null }) {
   const map = useMap();
   useEffect(() => {
-    if (target) map.flyTo(target, Math.max(map.getZoom(), 15), { duration: 1.2 });
+    if (target) map.flyTo(target.at, target.zoom ?? Math.max(map.getZoom(), 15), { duration: target.zoom ? 2.4 : 1.2 });
   }, [target, map]);
   return null;
+}
+
+const PRECISION_ZOOM: Record<string, number> = { exact: 17, street: 16, neighbourhood: 14, city: 11, region: 7, country: 5 };
+const PRECISION_RADIUS: Record<string, number> = { exact: 120, street: 350, neighbourhood: 1500, city: 8000, region: 80000, country: 400000 };
+const precisionOf = (l: GeoLocation) => (l.kind.startsWith("ai-") ? l.kind.slice(3) : "exact");
+
+const iconCache = new Map<string, L.DivIcon>();
+function radarIcon(color: string, lead: boolean, drop: boolean) {
+  const k = `${color}|${lead}|${drop}`;
+  if (!iconCache.has(k))
+    iconCache.set(
+      k,
+      L.divIcon({
+        className: "radar-pin-icon",
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+        html: `<div class="radar-pin${lead ? " lead" : ""}${drop ? " drop" : ""}" style="--pin:${color}"><span class="ring"></span><span class="ring"></span><span class="ring"></span><span class="core"></span></div>`,
+      }),
+    );
+  return iconCache.get(k)!;
 }
 
 function ClickToAdd({ active, onAdd }: { active: boolean; onAdd: (lat: number, lng: number) => void }) {
@@ -42,7 +63,12 @@ export function MapView() {
   const [q, setQ] = useState("");
   const [nearby, setNearby] = useState<{ name: string; kind: string; lat: number; lng: number; url: string }[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [fly, setFly] = useState<[number, number] | null>(null);
+  const [fly, setFly] = useState<{ at: [number, number]; zoom?: number; key: number } | null>(null);
+  const [lock, setLock] = useState<{ name: string; sub: string; confirmed: boolean; key: number } | null>(null);
+  const [tour, setTour] = useState(false);
+  const locates = useWorkspace((s) => s.locates);
+  const seenLocates = useRef(0);
+  const clearLock = useMemo(() => () => setLock(null), []);
 
   const candByLoc = useMemo(() => new Map(inv.candidates.filter((c) => c.locationId).map((c) => [c.locationId!, c])), [inv.candidates]);
   const points = inv.locations.map((l) => [l.lat, l.lng] as [number, number]);
@@ -84,6 +110,50 @@ export function MapView() {
     }
   }
 
+  const lockOn = (l: GeoLocation, sub?: string) => {
+    const c = candByLoc.get(l.id);
+    const confirmed = !c?.against.some((a) => /could not confirm|unconfirmed/i.test(a));
+    setFly({ at: [l.lat, l.lng], zoom: PRECISION_ZOOM[precisionOf(l)] ?? 15, key: Date.now() });
+    setLock({ name: l.name, sub: sub || `${precisionOf(l)} precision · ${l.lat.toFixed(4)}, ${l.lng.toFixed(4)}`, confirmed, key: Date.now() });
+    setSelected(l.id);
+  };
+  // fly to each new AI location fix as it arrives during a run
+  useEffect(() => {
+    if (locates.length <= seenLocates.current) {
+      seenLocates.current = locates.length;
+      return;
+    }
+    const f = locates[locates.length - 1];
+    seenLocates.current = locates.length;
+    const l = inv.locations.find((x) => Math.abs(x.lat - f.lat) < 1e-6 && Math.abs(x.lng - f.lng) < 1e-6) || { id: "", name: f.name, lat: f.lat, lng: f.lng, kind: `ai-${f.precision}`, sourceIds: [] };
+    lockOn(l as GeoLocation, `Possible location · ${Math.round(f.confidence * 100)}% AI · ${f.confirmed ? "map-confirmed" : "unconfirmed estimate"}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locates.length]);
+  // guided tour through every possible location, best first
+  const tourList = useMemo(
+    () =>
+      inv.candidates
+        .filter((c) => c.status !== "rejected")
+        .map((c) => inv.locations.find((l) => l.id === c.locationId))
+        .filter(Boolean) as GeoLocation[],
+    [inv.candidates, inv.locations],
+  );
+  useEffect(() => {
+    if (!tour || !tourList.length) return;
+    let i = 0;
+    lockOn(tourList[0], `Possible location 1/${tourList.length}`);
+    const id = setInterval(() => {
+      i++;
+      if (i >= tourList.length) {
+        setTour(false);
+        return;
+      }
+      lockOn(tourList[i], `Possible location ${i + 1}/${tourList.length}`);
+    }, 5200);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tour, tourList.length]);
+
   const color = (l: GeoLocation) => {
     const c = candByLoc.get(l.id);
     if (l.userSelected) return "#f2b84b";
@@ -109,13 +179,29 @@ export function MapView() {
         <FlyTo target={fly} />
         <ClickToAdd active={adding} onAdd={addAt} />
         {leadLoc && <Circle center={[leadLoc.lat, leadLoc.lng]} radius={600} pathOptions={{ color: "#ff7a45", weight: 1, dashArray: "4 6", fillOpacity: 0.04 }} />}
-        {inv.locations.map((l) => (
-          <CircleMarker key={l.id} center={[l.lat, l.lng]} radius={l.id === selected ? 10 : candByLoc.get(l.id)?.status === "leading" ? 9 : 7} pathOptions={{ color: "#050608", weight: 2, fillColor: color(l), fillOpacity: 0.95 }} eventHandlers={{ click: () => setSelected(l.id) }}>
-            <Tooltip direction="top" offset={[0, -8]}>
-              {l.name}
-            </Tooltip>
-          </CircleMarker>
-        ))}
+        {inv.locations
+          .filter((l) => l.kind.startsWith("ai-") && precisionOf(l) !== "exact")
+          .map((l) => (
+            <Circle key={`u${l.id}`} center={[l.lat, l.lng]} radius={PRECISION_RADIUS[precisionOf(l)] ?? 1000} pathOptions={{ color: color(l), weight: 1, dashArray: "3 6", fillOpacity: 0.05 }} />
+          ))}
+        {inv.locations.map((l) => {
+          const c = candByLoc.get(l.id);
+          const live = c && c.status !== "rejected";
+          return live ? (
+            <Marker key={l.id} position={[l.lat, l.lng]} icon={radarIcon(color(l), c.status === "leading", true)} eventHandlers={{ click: () => lockOn(l) }} zIndexOffset={c.status === "leading" ? 1000 : 0}>
+              <Tooltip direction="top" offset={[0, -10]}>
+                {l.name}
+                {(c.signals.ai ?? 0) > 0 ? " · AI geolocation" : ""}
+              </Tooltip>
+            </Marker>
+          ) : (
+            <CircleMarker key={l.id} center={[l.lat, l.lng]} radius={l.id === selected ? 10 : 7} pathOptions={{ color: "#050608", weight: 2, fillColor: color(l), fillOpacity: 0.95 }} eventHandlers={{ click: () => setSelected(l.id) }}>
+              <Tooltip direction="top" offset={[0, -8]}>
+                {l.name}
+              </Tooltip>
+            </CircleMarker>
+          );
+        })}
         {nearby?.map((n, i) => (
           <CircleMarker key={`n${i}`} center={[n.lat, n.lng]} radius={4} pathOptions={{ color: "#8b5cf6", fillColor: "#a78bfa", fillOpacity: 0.9, weight: 1 }}>
             <Tooltip>
@@ -139,6 +225,11 @@ export function MapView() {
             <Search className="size-3.5" />
           </button>
         </form>
+        {tourList.length > 0 && (
+          <Button size="sm" variant={tour ? "subtle" : "outline"} className="h-8 bg-panel/95" onClick={() => setTour((t) => !t)}>
+            {tour ? <Square className="size-3.5" /> : <Play className="size-3.5" />} {tour ? "Stop tour" : `Tour possible locations (${tourList.length})`}
+          </Button>
+        )}
         <Button size="sm" variant={adding ? "subtle" : "outline"} className="h-8 bg-panel/95" onClick={() => setAdding((a) => !a)}>
           <MapPinPlus className="size-3.5" /> {adding ? "Click the map…" : "Add location"}
         </Button>
@@ -150,6 +241,7 @@ export function MapView() {
         <Legend c="#f2b84b" t="User-selected" />
         <Legend c="#a78bfa" t="Nearby landmark" />
       </div>
+      {lock && <LockOverlay key={lock.key} name={lock.name} sub={lock.sub} confirmed={lock.confirmed} onDone={clearLock} />}
       {busy && <div className="absolute left-1/2 top-3 z-[500] -translate-x-1/2 rounded bg-black/85 px-3 py-1.5 text-[12px] text-cyan">{busy}</div>}
 
       {loc && (
@@ -182,7 +274,7 @@ export function MapView() {
                 ))}
             </div>
             <div className="flex gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setFly([loc.lat, loc.lng])}>
+              <Button size="sm" variant="ghost" onClick={() => lockOn(loc)}>
                 <Crosshair className="size-3.5" /> Zoom here
               </Button>
               <Button size="sm" variant="ghost" onClick={() => loadNearby(loc)}>
@@ -269,6 +361,32 @@ export function MapView() {
           </div>
         </aside>
       )}
+    </div>
+  );
+}
+
+/** Target-lock animation shown while the map flies to a possible location. */
+function LockOverlay({ name, sub, confirmed, onDone }: { name: string; sub: string; confirmed: boolean; onDone: () => void }) {
+  useEffect(() => {
+    const id = setTimeout(onDone, 4800);
+    return () => clearTimeout(id);
+  }, [onDone]);
+  const col = confirmed ? "#ff5a5a" : "#f2b84b";
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[450] overflow-hidden">
+      <div className="lock-reticle" style={{ ["--lock" as string]: col }}>
+        <i />
+        <i />
+        <i />
+        <i />
+      </div>
+      <div className="absolute left-1/2 top-[calc(50%+56px)] -translate-x-1/2 animate-[lock-label_0.4s_1.4s_both] whitespace-nowrap rounded-[3px] border bg-black/80 px-3 py-1.5 text-center backdrop-blur" style={{ borderColor: col }}>
+        <div className="font-mono text-[10px] tracking-[0.2em]" style={{ color: col }}>
+          {confirmed ? "⌖ LOCATION LOCKED" : "⌖ POSSIBLE LOCATION (UNCONFIRMED)"}
+        </div>
+        <div className="text-[13px] font-semibold">{name}</div>
+        <div className="font-mono text-[10.5px] text-dim">{sub}</div>
+      </div>
     </div>
   );
 }

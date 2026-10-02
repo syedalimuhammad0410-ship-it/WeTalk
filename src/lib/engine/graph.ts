@@ -46,8 +46,25 @@ export function buildBoard(inv: Investigation, prev?: Board, mode: ArrangeMode =
     for (const e of ev) for (const cid of e.clueIds) link(`clue:${cid}`, `candidate:${c.id}`, e.polarity === "contradicts" ? "contradicts" : "matches", e.polarity === "contradicts" ? "contradicts" : "supports");
     const loc = inv.locations.find((l) => l.id === c.locationId);
     if (loc) {
-      add({ id: `location:${loc.id}`, data: { kind: "location", title: loc.name, subtitle: `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}`, refId: loc.id } });
-      link(`candidate:${c.id}`, `location:${loc.id}`, "located at");
+      const precision = loc.kind.startsWith("ai-") ? loc.kind.slice(3) : "exact";
+      const unconfirmed = c.against.some((a) => /could not confirm|unconfirmed/i.test(a));
+      add({
+        id: `location:${loc.id}`,
+        data: {
+          kind: "location",
+          title: loc.name,
+          subtitle: `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}`,
+          refId: loc.id,
+          candidateId: c.id,
+          lat: loc.lat,
+          lng: loc.lng,
+          precision,
+          aiConfidence: c.signals.ai ?? null,
+          unconfirmed,
+          status: c.status,
+        },
+      });
+      link(`candidate:${c.id}`, `location:${loc.id}`, c.status === "leading" ? "possible location ★" : "possible location", "string");
     }
     for (const im of c.images.filter((i) => i.comparison).slice(0, 1)) {
       const nid = `refimg:${im.id}`;

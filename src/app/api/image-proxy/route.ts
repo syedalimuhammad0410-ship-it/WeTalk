@@ -2,7 +2,7 @@ import { HttpError, route } from "@/lib/server/api";
 import { USER_AGENT } from "@/lib/server/http";
 
 // Only public, licensed image hosts used for candidate reference photos.
-const ALLOWED = [/^(upload|commons|thumb)\.wikimedia\.org$/, /^[a-z]+\.wikipedia\.org$/, /^tile\.openstreetmap\.org$/, /^server\.arcgisonline\.com$/];
+const ALLOWED = [/^(upload|commons|thumb)\.wikimedia\.org$/, /^api\.openverse\.org$/, /^(live|farm\d+)\.staticflickr\.com$/, /^[a-z]+\.wikipedia\.org$/, /^tile\.openstreetmap\.org$/, /^server\.arcgisonline\.com$/];
 const MAX = 10_000_000;
 
 export const GET = route(async (req) => {
