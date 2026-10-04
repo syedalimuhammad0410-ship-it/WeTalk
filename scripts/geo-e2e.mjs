@@ -63,7 +63,14 @@ if (await tour.count()) {
   await page.waitForTimeout(2600);
   await page.screenshot({ path: `${OUT}/geo-map-locked.png` });
 }
-const steps = await page.evaluate(() => document.body.innerText.match(/AI geolocation[^\n]*/g));
-log("AI steps:", steps);
+// STEPLOG: what the run did (saved investigation)
+const id = page.url().match(/\/app\/i\/([^?]+)/)?.[1];
+if (id) {
+  const inv = await page.evaluate(async (i) => (await (await fetch(`/api/investigations/${i}`)).json()), id);
+  const v = inv.investigation || inv;
+  const run = v.runs?.[v.runs.length - 1];
+  for (const st of run?.steps || []) if (/geoloc|combination|visual|matching/.test(st.branch)) log("STEP", st.branch, st.status, (st.label || "").slice(0, 70), "|", (st.detail || "").slice(0, 90));
+  log("IMAGES", (v.candidates || []).slice(0, 3).map((c) => `${c.name}: ${c.images.length} refs (${c.images.filter((i) => /Street-level/.test(i.title)).length} street-level), compared ${c.images.filter((i) => i.comparison).length}`).join(" | "));
+}
 console.log("ERRORS:", errors.filter((e) => !/favicon|404 \(Not Found\)/.test(e)).slice(0, 20));
 await browser.close();

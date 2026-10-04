@@ -34,6 +34,7 @@ export const GET = route(async (_req, { user }) => {
       p("osm-overpass", "OpenStreetMap Overpass (nearby landmarks)", "Maps", "keyless"),
       p("photon", "Photon geocoder (second opinion for AI geolocation)", "Maps", "keyless"),
       p("google-maps", "Google Maps Platform (Places, Geocoding)", "Maps", k.GOOGLE_MAPS_API_KEY ? "ready" : "needs-key", "GOOGLE_MAPS_API_KEY"),
+      p("mapillary", "Mapillary street-level photos (visual matching near candidates)", "Images", k.MAPILLARY_ACCESS_TOKEN ? "ready" : "needs-key", "MAPILLARY_ACCESS_TOKEN"),
       p("esri", "Esri World Imagery satellite tiles", "Maps", "keyless", undefined, "Attribution required; displayed on map"),
       p("wikimedia-commons", "Wikimedia Commons reference photos", "Images", "keyless"),
       p("openverse", "Openverse — 800M+ openly licensed photos (Flickr and more)", "Images", "keyless"),

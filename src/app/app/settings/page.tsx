@@ -38,6 +38,7 @@ const KEY_HELP: Record<string, string> = {
   SERPAPI_API_KEY: "Google Lens reverse image search through SerpApi — serpapi.com",
   GOOGLE_MAPS_API_KEY: "Places API (New) and Geocoding — Google Maps Platform",
   YOUTUBE_API_KEY: "Public video metadata search — Google Cloud console, YouTube Data API v3",
+  MAPILLARY_ACCESS_TOKEN: "Mapillary street-level photos for visual matching near candidate locations — free client token at mapillary.com/developer",
 };
 
 export default function Settings() {

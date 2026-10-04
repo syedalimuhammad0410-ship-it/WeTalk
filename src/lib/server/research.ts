@@ -5,7 +5,7 @@ import { compact, hostOf, norm, nowIso, pLimit, textSupport, uid, uniqBy, yearOf
 import { fetchJson } from "./http";
 import type { ProviderContext } from "./settings";
 import { classify, getEntities, getLabels, nameHistory, type EntityClass, type WDEntity } from "@/lib/providers/wikidata";
-import { commonsImages, gdelt, searchHistoricalNewspapers, wikipediaSummary, webProviders, youtube, brave, duckduckgo, marginalia, wikipedia, openverseImages, internetArchive } from "@/lib/providers/search";
+import { commonsImages, gdelt, searchHistoricalNewspapers, wikipediaSummary, webProviders, youtube, brave, tavily, duckduckgo, marginalia, wikipedia, openverseImages, internetArchive } from "@/lib/providers/search";
 import { isCloudflareRuntime } from "./storage";
 import { mapProvider } from "@/lib/providers/maps";
 import type { ProviderResult, WebHit } from "@/lib/providers/types";
@@ -118,8 +118,10 @@ export async function runSearch(req: SearchRequest, ctx: ProviderContext): Promi
     ]);
   } else if (req.kind === "news") {
     const b = brave(ctx);
+    const t = tavily(ctx);
     await fanOut("news", "news", [
       ...(b.configured() ? [{ id: b.id, run: () => b.searchNews!(req.query, 8) }] : []),
+      ...(t.configured() ? [{ id: t.id, run: () => t.searchNews!(req.query, 8) }] : []),
       { id: "gdelt", run: () => gdelt.searchNews!(req.query, 8) },
       ...(isCloudflareRuntime() ? [] : [{ id: "duckduckgo", run: () => duckduckgo.searchNews!(req.query, 8) }]),
     ]);
@@ -794,7 +796,14 @@ export async function placeCandidates(req: CandidateRequest, ctx: ProviderContex
 // Candidate reference images
 // ---------------------------------------------------------------------------
 
-export async function candidateImages(name: string, city: string | undefined, category: string | undefined, sceneHint: string | undefined, aliases: string[] = []): Promise<ResearchDelta & { images: { candidateName: string; title: string; url: string; thumb: string; license?: string; sourceId: string }[] }> {
+export async function candidateImages(
+  name: string,
+  city: string | undefined,
+  category: string | undefined,
+  sceneHint: string | undefined,
+  aliases: string[] = [],
+  near?: { lat: number; lng: number; outdoor: boolean; ctx: ProviderContext },
+): Promise<ResearchDelta & { images: { candidateName: string; title: string; url: string; thumb: string; license?: string; sourceId: string }[] }> {
   const d = emptyDelta();
   const images: { candidateName: string; title: string; url: string; thumb: string; license?: string; sourceId: string }[] = [];
   const attempts: { text: string; category?: string }[] = [];
@@ -855,7 +864,15 @@ export async function candidateImages(name: string, city: string | undefined, ca
       if (images.length >= 8) break;
     }
   }
-  return { ...d, images: images.slice(0, 10) };
+  // photos actually taken at the spot: street-level imagery (outdoor scenes) and geotagged Commons photos
+  if (near) {
+    const nearby = await nearbyPhotos(name, near.lat, near.lng, near.outdoor, near.ctx);
+    d.queries.push(...nearby.queries);
+    d.sources.push(...nearby.sources);
+    // street-level photos first: they show the place from a pedestrian's point of view, like most uploads
+    images.unshift(...nearby.images.filter((n) => !images.some((x) => x.thumb === n.thumb)));
+  }
+  return { ...d, images: images.slice(0, 12) };
 }
 
 // ---------------------------------------------------------------------------
@@ -978,7 +995,8 @@ export async function verifyGeoGuess(g: GeoGuessInput, ctx: ProviderContext): Pr
 
   // 2. real web results that mention the hypothesis (sources come only from search engines, never from the model)
   const wq = (g.searchQuery || [g.name, g.city || g.country].filter(Boolean).join(" ")).slice(0, 200);
-  const webProvider = isCloudflareRuntime() ? marginalia : duckduckgo;
+  const tv = tavily(ctx);
+  const webProvider = tv.configured() ? tv : isCloudflareRuntime() ? marginalia : duckduckgo;
   const webQuery = q("ai-geolocation", wq, "web", webProvider.id);
   const web = await webProvider.searchWeb!(wq, 6);
   finishQuery(webQuery, web);
@@ -1050,4 +1068,246 @@ function haversine(a: { lat: number; lng: number }, b: { lat: number; lng: numbe
   const dLng = ((b.lng - a.lng) * Math.PI) / 180;
   const x = Math.sin(dLat / 2) ** 2 + Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+// ---------------------------------------------------------------------------
+// Clue-combination map search: every place in an area where several visible features occur together
+// ---------------------------------------------------------------------------
+
+export interface OsmFeatureInput {
+  tags?: Record<string, string>;
+  name?: string;
+  label: string;
+}
+
+const SAFE = /^[\p{L}\p{N} _:.'&-]{1,60}$/u;
+const esc = (v: string) => v.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+
+/** Overpass filter for one feature; only plain tag keys/values and names are accepted (no raw query text). */
+function osmFilter(f: OsmFeatureInput): string | null {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(f.tags || {}).slice(0, 3)) {
+    if (!/^[a-z_:]{2,30}$/.test(k) || !SAFE.test(v)) continue;
+    parts.push(`["${k}"="${esc(v)}"]`);
+  }
+  if (f.name && SAFE.test(f.name.trim())) {
+    const n = esc(f.name.trim().replace(/[.*+?^${}()|[\]]/g, "."));
+    parts.push(`[~"^(name|brand|operator)$"~"${n}",i]`);
+  }
+  return parts.length ? parts.join("") : null;
+}
+
+export interface OsmComboPlan {
+  ql: string;
+  label: string;
+  radiusM: number;
+  area: string;
+  anchorLabel: string;
+}
+
+/** Step 1 (server): validate the features, find the area and build a bounded Overpass query. */
+export async function osmComboPlan(req: { area: string; anchor: OsmFeatureInput; near: OsmFeatureInput[]; radiusM: number }): Promise<{ plan: OsmComboPlan | null; note?: string; queries: SearchQuery[] }> {
+  const queries: SearchQuery[] = [];
+  const anchor = osmFilter(req.anchor);
+  const near = req.near.map((f) => ({ f, q: osmFilter(f) })).filter((x) => x.q).slice(0, 3);
+  if (!anchor) return { plan: null, note: "No searchable map feature in the clues.", queries };
+  const areaQuery = q("clue-combination", `Search area: ${req.area}`, "maps", "osm-nominatim");
+  let bbox: [number, number, number, number] | null = null;
+  try {
+    const { data } = await fetchJson<{ boundingbox: [string, string, string, string] }[]>(
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(req.area.slice(0, 120))}`,
+      { provider: "osm-nominatim", op: "area", cacheTtl: 7 * 86400, timeoutMs: 8000 },
+    );
+    if (data[0]) {
+      const [s, n, w, e] = data[0].boundingbox.map(Number);
+      bbox = [s, w, n, e];
+    }
+    areaQuery.status = bbox ? "ok" : "empty";
+    areaQuery.resultCount = bbox ? 1 : 0;
+  } catch (e) {
+    areaQuery.status = "error";
+    areaQuery.error = e instanceof Error ? e.message : String(e);
+  }
+  queries.push(areaQuery);
+  if (!bbox) return { plan: null, note: `Could not find the area “${req.area}”.`, queries };
+  // keep the query bounded: shrink very large areas around their centre (≈ a metro region)
+  const MAX = 1.2;
+  if (bbox[2] - bbox[0] > MAX || bbox[3] - bbox[1] > MAX) {
+    const cy = (bbox[0] + bbox[2]) / 2;
+    const cx = (bbox[1] + bbox[3]) / 2;
+    bbox = [cy - MAX / 2, cx - MAX / 2, cy + MAX / 2, cx + MAX / 2];
+  }
+  const r = Math.round(Math.min(500, Math.max(20, req.radiusM || 150)));
+  const lines = [`[out:json][timeout:25][bbox:${bbox.map((x) => x.toFixed(5)).join(",")}];`, `nwr${anchor}->.a;`];
+  near.forEach((x, i) => lines.push(`nwr${x.q}->.n${i};`, `nwr.a(around.n${i}:${r})->.a;`));
+  lines.push(".a out center tags 25;");
+  const label = [req.anchor.label, ...near.map((x) => x.f.label)].join(" + ");
+  return { plan: { ql: lines.join(""), label, radiusM: r, area: req.area, anchorLabel: req.anchor.label }, queries };
+}
+
+export interface OsmElement {
+  type: string;
+  id: number;
+  lat?: number;
+  lon?: number;
+  center?: { lat: number; lon: number };
+  tags?: Record<string, string>;
+}
+
+/** Step 2 (server): turn the places that matched (queried from the user's browser) into candidates with map sources. */
+export function osmComboResults(plan: Omit<OsmComboPlan, "ql">, elements: OsmElement[]): ResearchDelta & { matches: number } {
+  const d = emptyDelta();
+  const els = elements.filter((e) => typeof (e.lat ?? e.center?.lat) === "number" && typeof (e.lon ?? e.center?.lon) === "number" && /^(node|way|relation)$/.test(e.type));
+  const { label, radiusM: r, area } = plan;
+  const query = q("clue-combination", `Map search: ${label} within ${r} m of each other in ${area}`, "maps", "osm-overpass");
+  query.status = els.length ? "ok" : "empty";
+  query.resultCount = els.length;
+  d.queries.push(query);
+  if (!els.length) return { ...d, matches: 0 };
+  // fewer matches = more telling; a combination that occurs once in a city is a strong lead
+  const strength = els.length === 1 ? 0.75 : els.length <= 3 ? 0.55 : els.length <= 8 ? 0.35 : 0.2;
+  for (const el of els.slice(0, 8)) {
+    const lat = el.lat ?? el.center!.lat;
+    const lng = el.lon ?? el.center!.lon;
+    const t = el.tags || {};
+    const name = String(t.name || t.brand || `${plan.anchorLabel} (${lat.toFixed(4)}, ${lng.toFixed(4)})`).slice(0, 120);
+    const url = `https://www.openstreetmap.org/${el.type}/${Number(el.id)}`;
+    const src = makeSource({
+      title: `${name} — OpenStreetMap`,
+      url,
+      provider: "osm-overpass",
+      category: "maps",
+      type: "map",
+      publisher: "OpenStreetMap contributors",
+      excerpt: [t["addr:street"], t["addr:city"]].filter(Boolean).join(", ").slice(0, 200) || area,
+      supports: [`${label} occur within ${r} m of each other here`],
+      reliability: { tier: "secondary", note: "Map database record matching a combination of features seen in the image." },
+      usedInReasoning: true,
+    });
+    d.sources.push(src);
+    const loc: GeoLocation = { id: uid("loc"), name, address: src.excerpt, lat, lng, kind: "ai-street", osmRef: `${el.type}/${Number(el.id)}`, wikidataId: t.wikidata, sourceIds: [src.id] };
+    d.locations!.push(loc);
+    const why = `Clue-combination map search: ${label} all occur within ${r} m of each other here — ${els.length === 1 ? "the only such place" : `one of ${els.length} such places`} in ${area} (OpenStreetMap).`;
+    d.candidates!.push({
+      id: uid("cand"),
+      name,
+      kind: t.amenity || t.shop || t.tourism || "place",
+      locationId: loc.id,
+      city: t["addr:city"],
+      address: loc.address,
+      names: [{ name }],
+      why: [`AI geolocation (map combination): ${why}`, why],
+      against: els.length > 8 ? [`${els.length} places in ${area} match this combination; more clues are needed to pick one.`] : [],
+      evidenceIds: [],
+      sourceIds: [src.id],
+      signals: { text: null, logo: null, visual: null, geo: null, temporal: null, source: null, exif: null, link: null, ai: strength },
+      confidence: "insufficient",
+      confidenceReasons: [],
+      status: "active",
+      images: [],
+      derivedFrom: ["Clue-combination map search"],
+      wikidataId: t.wikidata,
+    });
+  }
+  return { ...d, matches: els.length };
+}
+
+// ---------------------------------------------------------------------------
+// Photos taken near a coordinate (Mapillary street level + Wikimedia Commons geosearch)
+// ---------------------------------------------------------------------------
+
+export async function nearbyPhotos(name: string, lat: number, lng: number, outdoor: boolean, ctx: ProviderContext) {
+  const d = emptyDelta();
+  const images: { candidateName: string; title: string; url: string; thumb: string; license?: string; sourceId: string }[] = [];
+  const token = ctx.secrets.MAPILLARY_ACCESS_TOKEN;
+  const tasks: Promise<void>[] = [];
+  if (token && outdoor) {
+    tasks.push(
+      (async () => {
+        const query = q("visual-search", `Street-level photos within ~120 m of ${name}`, "images", "mapillary");
+        try {
+          type Img = { id: string; thumb_1024_url?: string; captured_at?: number; computed_geometry?: { coordinates: [number, number] } };
+          let rows: Img[] = [];
+          // dense areas reject large boxes: shrink until Mapillary accepts
+          for (const half of [0.0011, 0.0005, 0.00025]) {
+            const bbox = [lng - half * 1.4, lat - half, lng + half * 1.4, lat + half].map((x) => x.toFixed(6)).join(",");
+            const r = await fetch(`https://graph.mapillary.com/images?access_token=${encodeURIComponent(token)}&fields=id,thumb_1024_url,captured_at,computed_geometry&bbox=${bbox}&limit=24`, { signal: AbortSignal.timeout(9000) });
+            const j = (await r.json()) as { data?: Img[]; error?: { message: string } };
+            if (j.error && /reduce the amount/i.test(j.error.message)) continue;
+            if (j.error) throw new Error(j.error.message);
+            rows = j.data || [];
+            break;
+          }
+          // spread picks over the area instead of 6 frames from one camera sequence
+          const picked: Img[] = [];
+          for (const r of rows.filter((x) => x.thumb_1024_url)) {
+            const c = r.computed_geometry?.coordinates;
+            if (c && picked.some((p) => p.computed_geometry && Math.hypot(p.computed_geometry.coordinates[0] - c[0], p.computed_geometry.coordinates[1] - c[1]) < 0.00012)) continue;
+            picked.push(r);
+            if (picked.length >= 5) break;
+          }
+          for (const r of picked) {
+            const when = r.captured_at ? new Date(r.captured_at).toISOString().slice(0, 7) : undefined;
+            const src = makeSource({
+              title: `Street-level photo near ${name}${when ? ` (${when})` : ""}`,
+              url: `https://www.mapillary.com/app/?pKey=${r.id}`,
+              provider: "mapillary",
+              publisher: "Mapillary contributors",
+              category: "images",
+              type: "image",
+              publishedAt: when,
+              excerpt: "CC BY-SA 4.0 · Mapillary street-level imagery",
+              reliability: { tier: "secondary", note: "Crowd-sourced street-level photo taken at this location; the date shows how the place looked then." },
+              why: `Street-level photo taken near candidate ${name}, retrieved to compare the surroundings.`,
+            });
+            d.sources.push(src);
+            images.push({ candidateName: name, title: src.title, url: src.url, thumb: r.thumb_1024_url!, license: "CC BY-SA 4.0", sourceId: src.id });
+          }
+          query.status = images.length ? "ok" : "empty";
+          query.resultCount = images.length;
+        } catch (e) {
+          query.status = "error";
+          query.error = e instanceof Error ? e.message : String(e);
+        }
+        d.queries.push(query);
+      })(),
+    );
+  }
+  tasks.push(
+    (async () => {
+      const query = q("visual-search", `Geotagged photos within 250 m of ${name}`, "images", "wikimedia-commons");
+      try {
+        const u = `https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=geosearch&ggscoord=${lat}|${lng}&ggsradius=250&ggsnamespace=6&ggslimit=10&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=640`;
+        const { data } = await fetchJson<{ query?: { pages?: Record<string, { title: string; imageinfo?: { thumburl?: string; url: string; descriptionurl: string; extmetadata?: Record<string, { value: string }> }[] }> } }>(u, { provider: "wikimedia-commons", op: "geosearch", cacheTtl: 7 * 86400 });
+        let n = 0;
+        for (const p of Object.values(data.query?.pages || {})) {
+          const ii = p.imageinfo?.[0];
+          if (!ii || !/\.(jpe?g|png|webp)$/i.test(p.title) || n >= 4) continue;
+          const title = p.title.replace(/^File:/, "").replace(/\.[a-z]+$/i, "");
+          const src = makeSource({
+            title,
+            url: ii.descriptionurl,
+            provider: "wikimedia-commons",
+            publisher: "Wikimedia Commons",
+            category: "images",
+            type: "image",
+            excerpt: `${ii.extmetadata?.LicenseShortName?.value || "see license on page"} · photographed within 250 m`,
+            reliability: { tier: "secondary", note: "Geotagged photo taken near this location." },
+            why: `Photo geotagged near candidate ${name}, retrieved for visual comparison.`,
+          });
+          d.sources.push(src);
+          images.push({ candidateName: name, title, url: ii.descriptionurl, thumb: ii.thumburl || ii.url, license: ii.extmetadata?.LicenseShortName?.value, sourceId: src.id });
+          n++;
+        }
+        query.status = n ? "ok" : "empty";
+        query.resultCount = n;
+      } catch (e) {
+        query.status = "error";
+        query.error = e instanceof Error ? e.message : String(e);
+      }
+      d.queries.push(query);
+    })(),
+  );
+  await Promise.all(tasks);
+  return { ...d, images };
 }

@@ -3,6 +3,9 @@ import { USER_AGENT } from "@/lib/server/http";
 
 // Only public, licensed image hosts used for candidate reference photos.
 const ALLOWED = [/^(upload|commons|thumb)\.wikimedia\.org$/, /^api\.openverse\.org$/, /^(live|farm\d+)\.staticflickr\.com$/, /^[a-z]+\.wikipedia\.org$/, /^tile\.openstreetmap\.org$/, /^server\.arcgisonline\.com$/];
+// Mapillary serves street-level photos from Meta's CDN; only its Mapillary image paths are allowed there
+const MAPILLARY_CDN = /^scontent[\w-]*\.xx\.fbcdn\.net$/;
+const allowed = (u: URL) => ALLOWED.some((r) => r.test(u.hostname)) || (MAPILLARY_CDN.test(u.hostname) && u.pathname.startsWith("/m1/v/t6/"));
 const MAX = 10_000_000;
 
 export const GET = route(async (req) => {
@@ -14,7 +17,7 @@ export const GET = route(async (req) => {
   } catch {
     throw new HttpError(400, "Invalid url.");
   }
-  if (u.protocol !== "https:" || !ALLOWED.some((r) => r.test(u.hostname))) throw new HttpError(403, "Host not allowed by image proxy.");
+  if (u.protocol !== "https:" || !allowed(u)) throw new HttpError(403, "Host not allowed by image proxy.");
   let res: Response | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     res = await fetch(u, { headers: { "User-Agent": USER_AGENT }, redirect: "follow", signal: AbortSignal.timeout(12000) });
@@ -23,7 +26,7 @@ export const GET = route(async (req) => {
   }
   if (!res) throw new HttpError(502, "Upstream unavailable.");
   const final = new URL(res.url);
-  if (!ALLOWED.some((r) => r.test(final.hostname))) throw new HttpError(403, "Redirected to a host that is not allowed.");
+  if (!allowed(final)) throw new HttpError(403, "Redirected to a host that is not allowed.");
   if (!res.ok) throw new HttpError(502, `Upstream responded ${res.status}.`);
   const type = res.headers.get("content-type") || "";
   if (!type.startsWith("image/")) throw new HttpError(415, "Upstream is not an image.");

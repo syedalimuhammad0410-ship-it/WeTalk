@@ -7,6 +7,7 @@ import { api, imageUrl } from "@/lib/client/api";
 import type { Box, Clue, ImageRecord } from "@/lib/types";
 import { nowIso, uid } from "@/lib/util";
 import { EnhanceDialog } from "./EnhanceDialog";
+import { ReverseSearch } from "./ReverseSearch";
 
 export function ImageTab() {
   const inv = useWorkspace((s) => s.inv)!;
@@ -191,6 +192,7 @@ export function ImageTab() {
             {showBoxes ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />} Overlays
           </Button>
           <div className="flex-1" />
+          <ReverseSearch imageKey={img.key} />
           <Button size="sm" variant="ghost" onClick={() => setEnhance({ open: true })}>
             <Wand2 className="size-3.5" /> Enhance image
           </Button>

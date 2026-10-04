@@ -16,6 +16,7 @@ export const SECRET_KEYS = [
   "GOOGLE_MAPS_API_KEY",
   "GOOGLE_CLOUD_VISION_API_KEY",
   "YOUTUBE_API_KEY",
+  "MAPILLARY_ACCESS_TOKEN",
 ] as const;
 export type SecretKey = (typeof SECRET_KEYS)[number];
 

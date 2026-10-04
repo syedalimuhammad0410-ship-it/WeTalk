@@ -37,9 +37,23 @@ export interface AiGeoGuess {
   searchQuery: string;
 }
 
+/** A combination of mappable features to look for together on OpenStreetMap. */
+export interface OsmFeature {
+  tags?: Record<string, string>;
+  name?: string;
+  label: string;
+}
+export interface OsmQuery {
+  area: string;
+  anchor: OsmFeature;
+  near: OsmFeature[];
+  radiusM: number;
+}
+
 export interface AiGeolocation {
   locations: AiGeoGuess[];
   overall: string;
+  osmQuery?: OsmQuery | null;
 }
 
 export interface AiComparison {
@@ -105,9 +119,14 @@ const GeoSchema = z.preprocess(
     )
     .default([]),
   overall: z.string().catch("").default(""),
+  osmQuery: z
+    .object({ area: z.string().min(2), anchor: z.object({ tags: z.record(z.string(), z.string()).optional().catch(undefined), name: z.string().optional().catch(undefined), label: z.string().catch("feature") }), near: z.array(z.object({ tags: z.record(z.string(), z.string()).optional().catch(undefined), name: z.string().optional().catch(undefined), label: z.string().catch("feature") })).max(3).catch([]).default([]), radiusM: z.number().min(20).max(500).catch(150) })
+    .nullable()
+    .catch(null)
+    .default(null),
 }),
 );
-const GEO_SHAPE = `{"locations":[{"name":string,"address":string|null,"city":string|null,"region":string|null,"country":string|null,"lat":number|null,"lng":number|null,"precision":"exact"|"street"|"neighbourhood"|"city"|"region"|"country","confidence":number(0-1),"reasoning":string,"keyClues":[string],"searchQuery":string}],"overall":string}`;
+const GEO_SHAPE = `{"locations":[{"name":string,"address":string|null,"city":string|null,"region":string|null,"country":string|null,"lat":number|null,"lng":number|null,"precision":"exact"|"street"|"neighbourhood"|"city"|"region"|"country","confidence":number(0-1),"reasoning":string,"keyClues":[string],"searchQuery":string}],"overall":string,"osmQuery":{"area":string,"anchor":{"tags":{string:string}|null,"name":string|null,"label":string},"near":[{"tags":{string:string}|null,"name":string|null,"label":string}],"radiusM":number}|null}`;
 const geoPrompt = (cluesText: string) => `You are geolocating the image(s) above, like an expert OSINT geolocator (GeoGuessr-level skill).
 Use EVERY clue: readable text and languages/scripts, business names, logos and sponsors, team branding, flags, phone-number and address formats, licence plates (format/colour only), road markings, signage style, driving side, bollards, utility poles, architecture, vegetation, terrain, climate, sun/shadows, and any landmark you recognise.
 Clues already extracted by other tools (may contain OCR errors):
@@ -118,7 +137,12 @@ Return up to 5 ranked location hypotheses, most specific first (a named venue/bu
 - confidence is your honest probability (0-1) that this hypothesis is correct; never overstate it.
 - reasoning: 1-3 sentences citing the specific visible clues. keyClues: the 2-6 clues that matter most.
 - searchQuery: one web search query that would verify the hypothesis.
-- Do not identify private individuals or private homes. Do not invent sources or URLs.`;
+- Do not identify private individuals or private homes. Do not invent sources or URLs.
+
+osmQuery (optional, else null): if the exact spot is NOT certain but the image shows 2+ distinct features that are mapped in OpenStreetMap, describe them so a map search can find every place where they occur together.
+- area: the most likely city or small region to search (never a whole large country), e.g. "Porto, Portugal".
+- anchor: the most specific feature; near: up to 3 other features visible close to it; radiusM: how close they are (20-500).
+- Each feature uses OpenStreetMap tags (e.g. {"amenity":"pharmacy"}, {"railway":"tram_stop"}, {"amenity":"place_of_worship","religion":"christian"}, {"shop":"supermarket"}) and/or a visible business name (e.g. "Pingo Doce"); label is a short human description.`;
 
 const SYSTEM = `You are the vision and reasoning component of TRACE, a responsible visual-investigation tool for identifying PUBLIC places, venues, buildings, organizations, objects and documents.
 Rules:

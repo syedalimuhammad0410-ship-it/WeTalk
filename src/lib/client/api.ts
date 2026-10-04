@@ -58,4 +58,6 @@ export const api = {
 };
 
 export const imageUrl = (key: string) => `/api/images/${key}`;
-export const proxied = (url: string) => `/api/image-proxy?url=${encodeURIComponent(url)}`;
+// Mapillary's CDN serves signed, CORS-enabled (Access-Control-Allow-Origin: *) image URLs that must be
+// fetched exactly as issued, so the browser loads those directly; everything else goes through the proxy.
+export const proxied = (url: string) => (/^https:\/\/scontent[\w-]*\.xx\.fbcdn\.net\/m1\/v\/t6\//.test(url) ? url : `/api/image-proxy?url=${encodeURIComponent(url)}`);

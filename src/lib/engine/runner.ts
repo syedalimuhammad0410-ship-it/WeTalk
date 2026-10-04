@@ -504,7 +504,7 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
       }),
       opts.providers?.ai && opts.mode !== "document"
         ? step("ai-geolocation", "AI geolocation: reading every clue to pin the location", async (s) => {
-            const r = await api.post<{ status: string; error?: string; model: string; overall: string; locations: { name: string; address: string | null; city: string | null; region: string | null; country: string | null; lat: number | null; lng: number | null; precision: string; confidence: number; reasoning: string; keyClues: string[]; searchQuery: string }[] }>(
+            const r = await api.post<{ status: string; error?: string; model: string; overall: string; osmQuery?: { area: string; anchor: { tags?: Record<string, string>; name?: string; label: string }; near: { tags?: Record<string, string>; name?: string; label: string }[]; radiusM: number } | null; locations: { name: string; address: string | null; city: string | null; region: string | null; country: string | null; lat: number | null; lng: number | null; precision: string; confidence: number; reasoning: string; keyClues: string[]; searchQuery: string }[] }>(
               "/api/geolocate",
               { imageKeys: images.slice(0, 3).map((i) => i.key), clues: geoClueText(inv, [...sceneHints], [...aiResults.values()]) },
               opts.signal,
@@ -527,6 +527,30 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
               }),
             );
             s.detail = r.locations.length ? `${r.locations.length} hypotheses · ${confirmed} confirmed on the map · top: ${r.locations[0].name}` : "No location hypotheses";
+            // features seen together in the image → every place on the map where they occur together
+            const oq = r.osmQuery;
+            if (oq && opts.mode !== "quick") {
+              const label = [oq.anchor.label, ...oq.near.map((n) => n.label)].join(" + ");
+              await step("clue-combination", `Map search for clue combination: ${label} in ${oq.area}`, async (s2) => {
+                const p = await api.post<{ plan: { ql: string; label: string; radiusM: number; area: string; anchorLabel: string } | null; note?: string; queries: ResearchDelta["queries"] }>("/api/geolocate/osm", { op: "plan", ...oq }, opts.signal);
+                apply({ queries: p.queries, results: [], sources: [] });
+                if (!p.plan) {
+                  s2.status = "skipped";
+                  s2.detail = p.note;
+                  return;
+                }
+                s2.detail = "Querying OpenStreetMap from your browser (can take up to a minute when the map servers are busy)…";
+                emit({ type: "step", step: { ...s2 } });
+                const { overpassQuery } = await import("@/lib/client/overpass");
+                const res = await overpassQuery<{ elements: unknown[] }>(p.plan.ql, 70000, opts.signal);
+                const { ql: _ql, ...meta } = p.plan;
+                void _ql;
+                const d = await api.post<ResearchDelta & { matches: number }>("/api/geolocate/osm", { op: "results", ...meta, elements: res.elements.slice(0, 60) }, opts.signal);
+                mergeAiCandidates(d);
+                for (const loc of (d.locations || []).slice(0, 3)) emit({ type: "locate", name: loc.name, lat: loc.lat, lng: loc.lng, precision: "street", confidence: d.matches === 1 ? 0.75 : 0.4, confirmed: true });
+                s2.detail = d.matches ? `${d.matches} place${d.matches > 1 ? "s" : ""} in ${oq.area} where ${label} occur together` : "No place in the area has this combination";
+              });
+            }
           })
         : Promise.resolve(),
     ]);
@@ -550,7 +574,18 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
       await step("visual-search", `Reference photos: ${cand.name}`, async (s) => {
         const r = await api.post<ResearchDelta & { images: { candidateName: string; title: string; url: string; thumb: string; license?: string; sourceId: string }[] }>(
           "/api/candidate-images",
-          { name: cand.name, aliases: cand.names.map((n) => n.name).slice(0, 8), city: cand.city, category: cand.commonsCategory, sceneHint: [...sceneHints].find((h) => ["basketball", "arena", "stadium", "hotel", "restaurant", "university"].includes(h)) },
+          {
+            name: cand.name,
+            aliases: cand.names.map((n) => n.name).slice(0, 8),
+            city: cand.city,
+            category: cand.commonsCategory,
+            sceneHint: [...sceneHints].find((h) => ["basketball", "arena", "stadium", "hotel", "restaurant", "university"].includes(h)),
+            // with coordinates, also fetch photos actually taken at the spot (street level for outdoor scenes)
+            ...(() => {
+              const l = inv.locations.find((x) => x.id === cand.locationId);
+              return l ? { lat: l.lat, lng: l.lng, outdoor: primary.analysis?.indoorLikely !== true } : {};
+            })(),
+          },
           opts.signal,
         );
         apply(r);
