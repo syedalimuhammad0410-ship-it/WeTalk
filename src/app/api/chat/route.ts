@@ -2,7 +2,7 @@ import { z } from "zod";
 import { readJson, route } from "@/lib/server/api";
 import { getInvestigation } from "@/lib/server/investigations";
 import { providerContext } from "@/lib/server/settings";
-import { runAgent } from "@/lib/server/agent";
+import { runAgent, runGeminiAgent } from "@/lib/server/agent";
 import { answer } from "@/lib/engine/intents";
 
 const PRIVACY = /\b(who is (this|that|the) (person|man|woman|guy|girl)|identify (this|the) (person|face|man|woman)|face ?recogni|where does (he|she|this person) live|home address of|track (him|her|this person)|dox)\b/i;
@@ -22,6 +22,8 @@ export const POST = route(async (req, { user }) => {
   try {
     const r = await runAgent(ctx, inv, body.message);
     if (r) return { ...r, engine: `anthropic:${ctx.prefs.aiModel}` };
+    const g = await runGeminiAgent(ctx, inv, body.message);
+    if (g) return { ...g, engine: `gemini:${g.model}` };
   } catch (e) {
     const fallback = answer(inv, body.message);
     return { ...fallback, engine: "rules", warning: `AI assistant unavailable (${e instanceof Error ? e.message : String(e)}); answered from investigation state.` };

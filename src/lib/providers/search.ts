@@ -317,6 +317,20 @@ const decodeHtml = (s: string) =>
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ");
 
+// search engines, map front-ends and bare portal homepages say nothing about the query
+const PORTALS = /(^|\.)(google|bing|yahoo|duckduckgo|baidu|yandex|facebook|instagram|x|twitter|tiktok|pinterest|linkedin|youtube|apple|mapquest)\.[a-z.]+$/;
+function isLowValueUrl(url: string) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (/(^|\.)(google|bing|yahoo|duckduckgo|mapquest)\.[a-z.]+$/.test(host) && /^\/(maps|search|url|webhp)?\/?($|search|place|@)/.test(u.pathname)) return true;
+    if (PORTALS.test(host) && (u.pathname === "/" || u.pathname === "")) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 async function ddgLite(q: string, n: number): Promise<{ items: WebHit[]; cached: boolean; ms: number }> {
   const key = `${q}|${n}`;
   const hit = ddgCache.get(key);
@@ -341,6 +355,7 @@ async function ddgLite(q: string, n: number): Promise<{ items: WebHit[]; cached:
     if (redirect) url = decodeURIComponent(redirect[1]);
     if (url.startsWith("//")) url = `https:${url}`;
     if (!/^https?:\/\//.test(url) || /duckduckgo\.com\/y\.js|bing\.com\/aclick/.test(url)) continue; // skip ads
+    if (isLowValueUrl(url)) continue;
     items.push({ title: decodeHtml(m[2]), url, snippet: decodeHtml(m[3]).slice(0, 300), publisher: hostOf(url) });
   }
   ddgCache.set(key, { at: Date.now(), items });

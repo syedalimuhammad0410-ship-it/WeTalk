@@ -2,7 +2,7 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ChatAction, Investigation } from "@/lib/types";
 import type { ResearchDelta } from "@/lib/engine/protocol";
-import { anthropicClient } from "@/lib/providers/ai";
+import { anthropicClient, geminiGenerate, type GeminiPart } from "@/lib/providers/ai";
 import { mapProvider } from "@/lib/providers/maps";
 import type { ProviderContext } from "./settings";
 import { runSearch } from "./research";
@@ -39,6 +39,18 @@ export function digest(inv: Investigation) {
     sources: inv.sources.slice(0, 80).map((s) => ({ id: s.id, title: truncate(s.title, 80), publisher: s.publisher, category: s.category, verified: s.verified, used: s.usedInReasoning })),
     queries: inv.queries.slice(-30).map((q) => `${q.kind}:${q.text} [${q.status}]`),
   });
+}
+
+/** Keeps only citations that resolve to real sources; drops the rest (no fabricated citations). */
+function cleanCitations(text: string, valid: Set<string>) {
+  const cited: string[] = [];
+  const clean = text.replace(/\s?\[source:([^\]]+)\]/g, (_all, list: string) => {
+    const ids = list.split(/[,;\s]+/).map((x) => x.replace(/^source:/, "").trim()).filter(Boolean);
+    const ok = ids.filter((id) => valid.has(id));
+    cited.push(...ok);
+    return ok.length ? " " + ok.map((id) => `[source:${id}]`).join("") : "";
+  });
+  return { clean, cited: Array.from(new Set(cited)) };
 }
 
 const SYSTEM = `You are TRACE AI, the investigation assistant inside TRACE, a responsible visual-investigation tool for identifying PUBLIC places, venues, buildings, organizations, objects and documents from images.
@@ -153,8 +165,141 @@ export async function runAgent(ctx: ProviderContext, inv: Investigation, message
     merged.push({ role: "user", content: results });
   }
   const valid = new Set([...inv.sources.map((s) => s.id), ...delta.sources.map((s) => s.id)]);
-  const cited = Array.from(text.matchAll(/\[source:([a-zA-Z0-9_]+)\]/g)).map((m) => m[1]);
-  // strip any citation that does not resolve to a real source (no fabricated citations)
-  const clean = text.replace(/\[source:([a-zA-Z0-9_]+)\]/g, (all, id) => (valid.has(id) ? all : "[unverified citation removed]"));
-  return { reply: clean || "Done.", actions, delta, sourceIds: cited.filter((c) => valid.has(c)) };
+  const { clean, cited } = cleanCitations(text, valid);
+  return { reply: clean || "Done.", actions, delta, sourceIds: cited };
+}
+
+// ---------------- Gemini agent (free tier) ----------------
+const GEMINI_TOOLS = [
+  {
+    functionDeclarations: [
+      {
+        name: "search",
+        description: "Run a real search through TRACE's providers (DuckDuckGo, Wikipedia, GDELT, Internet Archive, Openverse…). Returns results with source ids you may cite as [source:ID].",
+        parameters: {
+          type: "object",
+          properties: { kind: { type: "string", enum: ["web", "news", "videos", "images", "history"] }, query: { type: "string" } },
+          required: ["kind", "query"],
+        },
+      },
+      {
+        name: "geocode",
+        description: "Look up a public place or address on the map. Returns coordinates and a map URL.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+      },
+      {
+        name: "ui_action",
+        description:
+          "Ask the TRACE app to do something. type: reset | rerun | ignore_clue | show_tab | add_note | export | search | map_search. payloadJson is a JSON object string, e.g. rerun '{\"focus\":{\"clueTypes\":[\"logo\"],\"instruction\":\"...\"}}', ignore_clue '{\"match\":\"basketball\"}', show_tab '{\"tab\":\"map\"}' (tabs: map, board, sources, timeline, candidates, compare, image, result), add_note '{\"text\":\"...\"}', map_search '{\"query\":\"...\"}'.",
+        parameters: {
+          type: "object",
+          properties: { type: { type: "string" }, label: { type: "string" }, payloadJson: { type: "string" } },
+          required: ["type", "label"],
+        },
+      },
+    ],
+  },
+];
+
+export async function runGeminiAgent(ctx: ProviderContext, inv: Investigation, message: string): Promise<{ reply: string; actions: ChatAction[]; delta: ResearchDelta; sourceIds: string[]; model: string } | null> {
+  const key = ctx.secrets.GEMINI_API_KEY?.trim();
+  if (!key || !ctx.prefs.aiEnabled) return null;
+  const deadline = Date.now() + 23000; // serverless request limit
+  const delta: ResearchDelta = { queries: [], results: [], sources: [] };
+  const actions: ChatAction[] = [];
+  const contents: { role: "user" | "model"; parts: GeminiPart[] }[] = [];
+  for (const m of inv.chat.slice(-10)) {
+    const role = m.role === "assistant" ? "model" : "user";
+    const last = contents[contents.length - 1];
+    if (last && last.role === role) last.parts.push({ text: m.content || "(empty)" });
+    else contents.push({ role, parts: [{ text: m.content || "(empty)" }] });
+  }
+  while (contents.length && contents[0].role !== "user") contents.shift();
+  const userTurn = { text: `CURRENT INVESTIGATION STATE (JSON):\n${digest(inv)}\n\nUSER MESSAGE:\n${message}` };
+  if (contents.length && contents[contents.length - 1].role === "user") contents[contents.length - 1].parts.push(userTurn);
+  else contents.push({ role: "user", parts: [userTurn] });
+
+  let text = "";
+  let model = "";
+  for (let turn = 0; turn < 4; turn++) {
+    // leave time for a final answer after tools
+    if (deadline - Date.now() < 5000) break;
+    // after one round of tools, only allow another if there is clearly time for it plus a final answer
+    const lastTurn = turn >= 2 || (turn >= 1 && deadline - Date.now() < 15000) || deadline - Date.now() < 9000;
+    const r = await geminiGenerate(
+      key,
+      {
+        systemInstruction: {
+          parts: [
+            {
+              text:
+                SYSTEM.replace("call the ui_action tool", "call the ui_action function") +
+                "\n- Citations: [source:ID] is ONLY for ids of sources (they start with \"src_\"), one id per bracket. Refer to clues by quoting their text, never with a citation.\n- When you used a function, always finish with a written answer summarising what it returned.",
+            },
+          ],
+        },
+        contents,
+        ...(lastTurn ? {} : { tools: GEMINI_TOOLS }),
+        generationConfig: { temperature: 0.3, thinkingConfig: { thinkingLevel: "low" } },
+      },
+      deadline,
+      "chat",
+    );
+    model = r.model;
+    const parts = r.json.candidates?.[0]?.content?.parts || [];
+    text = parts.map((p) => p.text || "").join("").trim();
+    const calls = parts.filter((p) => p.functionCall);
+    if (!calls.length) break;
+    contents.push({ role: "model", parts }); // keep thought signatures intact
+    const responses: GeminiPart[] = await Promise.all(
+      calls.map(async (p) => {
+        const name = p.functionCall!.name;
+        const input = p.functionCall!.args || {};
+        try {
+          if (name === "search") {
+            const kind = (["web", "news", "videos", "images", "history"].includes(String(input.kind)) ? String(input.kind) : "web") as "web";
+            const d = await runSearch({ kind, query: String(input.query || "").slice(0, 300), branch: "chat" }, ctx);
+            delta.queries.push(...d.queries);
+            delta.results.push(...d.results);
+            delta.sources.push(...d.sources);
+            return {
+              functionResponse: {
+                name,
+                response: {
+                  status: d.queries.map((q) => `${q.provider}: ${q.status}`).join("; "),
+                  results: d.results.slice(0, 8).map((x) => ({ source_id: x.sourceId, title: x.title, url: x.url, snippet: truncate(x.snippet || "", 220), date: x.publishedAt })),
+                },
+              },
+            };
+          }
+          if (name === "geocode") {
+            const g = await mapProvider(ctx).geocode(String(input.query || "").slice(0, 300), 4);
+            return { functionResponse: { name, response: { status: g.status, places: g.items.map((x) => ({ name: x.name, address: x.displayName, lat: x.lat, lng: x.lng, url: x.url })) } } };
+          }
+          if (name === "ui_action") {
+            let payload: Record<string, unknown> = {};
+            try {
+              payload = input.payloadJson ? JSON.parse(String(input.payloadJson)) : {};
+            } catch {
+              /* ignore malformed payload */
+            }
+            actions.push({ type: String(input.type), label: String(input.label || input.type), payload, status: "proposed" });
+            return { functionResponse: { name, response: { ok: true, note: "Action queued for the app. Reset requires the user's confirmation." } } };
+          }
+          return { functionResponse: { name, response: { error: "Unknown function" } } };
+        } catch (e) {
+          return { functionResponse: { name, response: { error: e instanceof Error ? e.message : String(e) } } };
+        }
+      }),
+    );
+    contents.push({ role: "user", parts: responses });
+  }
+  if (!text) {
+    // ran out of time before the final answer: summarise what the tools actually returned
+    const top = delta.results.slice(0, 5).map((x) => `- ${x.title} [source:${x.sourceId}]`);
+    text = [top.length ? `Here's what the search found:\n${top.join("\n")}` : "", ...actions.map((a) => `→ ${a.label}`)].filter(Boolean).join("\n\n");
+  }
+  const valid = new Set([...inv.sources.map((s) => s.id), ...delta.sources.map((s) => s.id)]);
+  const { clean, cited } = cleanCitations(text, valid);
+  return { reply: clean || "Done.", actions, delta, sourceIds: cited, model };
 }

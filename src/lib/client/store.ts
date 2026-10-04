@@ -30,7 +30,7 @@ export interface WorkspaceState {
   compares: { candidateId: string; thumb: string; overall: string }[];
   /** live location fixes (AI geolocation hypotheses checked against the map) — drive the map/board animations */
   locates: { name: string; lat: number; lng: number; precision: string; confidence: number; confirmed: boolean; at: number }[];
-  providers: { ai: boolean; cloudVision: boolean; webKeyed: boolean } | null;
+  providers: { ai: boolean; aiName?: string | null; cloudVision: boolean; webKeyed: boolean } | null;
   animation: "full" | "reduced" | "off";
   tab: Tab;
   selectedCandidateId: string | null;
@@ -90,11 +90,11 @@ export const ws = {
   async loadProviders() {
     if (state.providers) return;
     try {
-      const r = await api.get<{ providers: { id: string; state: string }[] }>("/api/providers");
+      const r = await api.get<{ activeAi?: string | null; providers: { id: string; state: string }[] }>("/api/providers");
       const s = await api.get<{ prefs: { animation: WorkspaceState["animation"] } }>("/api/settings");
       const ready = (id: string) => r.providers.find((p) => p.id === id)?.state === "ready";
       const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      set({ providers: { ai: ready("anthropic") || ready("gemini"), cloudVision: ready("google-cloud-vision"), webKeyed: ready("brave") || ready("tavily") }, animation: reduced ? "reduced" : s.prefs.animation });
+      set({ providers: { ai: ready("anthropic") || ready("gemini"), aiName: r.activeAi, cloudVision: ready("google-cloud-vision"), webKeyed: ready("brave") || ready("tavily") }, animation: reduced ? "reduced" : s.prefs.animation });
     } catch {
       set({ providers: { ai: false, cloudVision: false, webKeyed: false } });
     }

@@ -82,27 +82,31 @@ const CompareSchema = z.object({
 
 const ExplainSchema = z.object({ explanation: z.string(), nextSteps: z.array(z.string()) });
 
-const GeoSchema = z.object({
+const GeoSchema = z.preprocess(
+  // accept a bare list of hypotheses, or a single hypothesis object, as well as {locations:[...]}
+  (v) => (Array.isArray(v) ? { locations: v } : v && typeof v === "object" && "name" in v && !("locations" in v) ? { locations: [v] } : v),
+  z.object({
   locations: z
     .array(
       z.object({
-        name: z.string(),
-        address: z.string().nullable().default(null),
-        city: z.string().nullable().default(null),
-        region: z.string().nullable().default(null),
-        country: z.string().nullable().default(null),
-        lat: z.number().nullable().default(null),
-        lng: z.number().nullable().default(null),
+        name: z.string().min(1),
+        address: z.string().nullable().catch(null).default(null),
+        city: z.string().nullable().catch(null).default(null),
+        region: z.string().nullable().catch(null).default(null),
+        country: z.string().nullable().catch(null).default(null),
+        lat: z.preprocess((v) => (v === "" || v === undefined ? null : typeof v === "string" ? Number(v) : v), z.number().nullable().catch(null)).default(null),
+        lng: z.preprocess((v) => (v === "" || v === undefined ? null : typeof v === "string" ? Number(v) : v), z.number().nullable().catch(null)).default(null),
         precision: z.enum(["exact", "street", "neighbourhood", "city", "region", "country"]).catch("city"),
-        confidence: z.number().min(0).max(1).catch(0.3),
-        reasoning: z.string().default(""),
-        keyClues: z.array(z.string()).default([]),
-        searchQuery: z.string().default(""),
+        confidence: z.preprocess((v) => { const n = typeof v === "string" ? parseFloat(v) : (v as number); return typeof n === "number" && n > 1 && n <= 100 ? n / 100 : n; }, z.number().min(0).max(1)).catch(0.3),
+        reasoning: z.string().catch("").default(""),
+        keyClues: z.array(z.string()).catch([]).default([]),
+        searchQuery: z.string().catch("").default(""),
       }),
     )
     .default([]),
-  overall: z.string().default(""),
-});
+  overall: z.string().catch("").default(""),
+}),
+);
 const GEO_SHAPE = `{"locations":[{"name":string,"address":string|null,"city":string|null,"region":string|null,"country":string|null,"lat":number|null,"lng":number|null,"precision":"exact"|"street"|"neighbourhood"|"city"|"region"|"country","confidence":number(0-1),"reasoning":string,"keyClues":[string],"searchQuery":string}],"overall":string}`;
 const geoPrompt = (cluesText: string) => `You are geolocating the image(s) above, like an expert OSINT geolocator (GeoGuessr-level skill).
 Use EVERY clue: readable text and languages/scripts, business names, logos and sponsors, team branding, flags, phone-number and address formats, licence plates (format/colour only), road markings, signage style, driving side, bollards, utility poles, architecture, vegetation, terrain, climate, sun/shadows, and any landmark you recognise.
@@ -201,48 +205,89 @@ Extract EVERY useful clue for identifying where/what this is: all legible text (
 // ordered by quality-per-second on the free tier; a busy model is skipped quickly (see per-attempt timeout)
 const GEMINI_MODELS = (process.env.GEMINI_MODELS || "gemini-3-flash-preview,gemini-3.5-flash,gemini-3.1-flash-lite,gemini-flash-lite-latest").split(",");
 
+/**
+ * Raw Gemini generateContent with the free-tier model fallback chain. Returns the first
+ * successful response and the model that produced it. `deadline` is an absolute ms timestamp.
+ */
+export async function geminiGenerate(key: string, body: Record<string, unknown>, deadline: number, op = "generate", skip: string[] = []): Promise<{ model: string; json: GeminiResponse }> {
+  const started = Date.now();
+  let lastErr = "";
+  for (const [i, model] of GEMINI_MODELS.entries()) {
+    if (skip.includes(model)) continue;
+    const left = deadline - Date.now();
+    if (left < 3000) break;
+    const budget = i === GEMINI_MODELS.length - 1 ? left : Math.min(left - 2000, 11000);
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(budget),
+      });
+      const j = (await res.json().catch(() => ({}))) as GeminiResponse;
+      if (!res.ok || j.error) {
+        lastErr = `${model}: ${j.error?.message || res.status}`;
+        continue;
+      }
+      recordUsage({ at: new Date().toISOString(), provider: "gemini", op, ok: true, ms: Date.now() - started, costUnits: j.usageMetadata?.totalTokenCount });
+      return { model, json: j };
+    } catch (e) {
+      lastErr = `${model}: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  recordUsage({ at: new Date().toISOString(), provider: "gemini", op, ok: false, ms: Date.now() - started, error: lastErr });
+  throw new Error(`Gemini unavailable (${lastErr || "time budget exhausted"})`);
+}
+
+export interface GeminiPart {
+  text?: string;
+  functionCall?: { name: string; args?: Record<string, unknown> };
+  functionResponse?: { name: string; response: Record<string, unknown> };
+  thoughtSignature?: string;
+  inline_data?: { mime_type: string; data: string };
+}
+export interface GeminiResponse {
+  error?: { message?: string; code?: number };
+  candidates?: { content?: { role?: string; parts?: GeminiPart[] }; finishReason?: string }[];
+  usageMetadata?: { totalTokenCount?: number };
+}
+
 export function geminiProvider(ctx: ProviderContext): AIProvider {
   const key = ctx.secrets.GEMINI_API_KEY?.trim();
   let lastModel = GEMINI_MODELS[0];
   async function generate<T>(op: string, schema: z.ZodType<T>, parts: Record<string, unknown>[], shape: string): Promise<T> {
     if (!key) throw new Error("Gemini is not configured. Set GEMINI_API_KEY.");
-    const started = Date.now();
+    const deadline = Date.now() + 24000; // stay inside the serverless request limit
     let lastErr = "";
-    for (const [i, model] of GEMINI_MODELS.entries()) {
-      const left = 24000 - (Date.now() - started); // stay inside the serverless request limit
-      if (left < 4000) break;
-      // overloaded models can hang for ~50 s before answering "high demand": cap each attempt so the next model gets a turn
-      const budget = i === GEMINI_MODELS.length - 1 ? left : Math.min(left - 3000, 11000);
+    // a model can answer with malformed JSON: retry on the next model in the chain
+    const tried: string[] = [];
+    while (deadline - Date.now() > 4000 && tried.length < GEMINI_MODELS.length) {
+      const { model, json } = await geminiGenerate(
+        key,
+        {
+          systemInstruction: { parts: [{ text: SYSTEM }] },
+          contents: [{ role: "user", parts: [...parts, { text: `Respond ONLY with JSON matching this shape (use null or [] when absent):\n${shape}` }] }],
+          generationConfig: { responseMimeType: "application/json", temperature: 0.2, thinkingConfig: { thinkingLevel: "low" } },
+        },
+        deadline,
+        op,
+        tried,
+      );
+      tried.push(model);
+      const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: SYSTEM }] },
-            contents: [{ role: "user", parts: [...parts, { text: `Respond ONLY with JSON matching this shape (use null or [] when absent):\n${shape}` }] }],
-            generationConfig: { responseMimeType: "application/json", temperature: 0.2, thinkingConfig: { thinkingLevel: "low" } },
-          }),
-          signal: AbortSignal.timeout(budget),
-        });
-        const j = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: number }; candidates?: { content?: { parts?: { text?: string }[] } }[]; usageMetadata?: { totalTokenCount?: number } };
-        if (!res.ok || j.error) {
-          lastErr = `${model}: ${j.error?.message || res.status}`;
-          continue; // busy / unavailable model → try the next one
+        let raw: unknown = JSON.parse(text.replace(/^\s*```(?:json)?|```\s*$/g, "").trim());
+        if (Array.isArray(raw) && raw.length === 1 && typeof raw[0] === "object") raw = raw[0]; // some models wrap the object in an array
+        const parsed = schema.safeParse(raw);
+        if (parsed.success) {
+          lastModel = model;
+          return parsed.data;
         }
-        const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
-        const parsed = schema.safeParse(JSON.parse(text.replace(/^```json|```$/g, "").trim()));
-        if (!parsed.success) {
-          lastErr = `${model}: unexpected response format`;
-          continue;
-        }
-        lastModel = model;
-        recordUsage({ at: new Date().toISOString(), provider: "gemini", op, ok: true, ms: Date.now() - started, costUnits: j.usageMetadata?.totalTokenCount });
-        return parsed.data;
-      } catch (e) {
-        lastErr = `${model}: ${e instanceof Error ? e.message : String(e)}`;
+        lastErr = `${model}: unexpected response format (${parsed.error.issues[0]?.path.join(".")}: ${parsed.error.issues[0]?.message})`;
+      } catch {
+        lastErr = `${model}: response was not JSON`;
       }
     }
-    recordUsage({ at: new Date().toISOString(), provider: "gemini", op, ok: false, ms: Date.now() - started, error: lastErr });
     throw new Error(`Gemini unavailable (${lastErr})`);
   }
   const img = (i: Img) => ({ inline_data: { mime_type: i.mime, data: i.base64 } });
@@ -300,7 +345,7 @@ Extract EVERY useful clue for identifying where/what this is: all legible text (
 
 /** Claude when configured (paid), otherwise Gemini (free tier), otherwise unconfigured Claude stub. */
 /** Paid Claude is used only when AI_PROVIDER=claude, or when no free Gemini key is set. */
-function preferClaude(ctx: ProviderContext) {
+export function preferClaude(ctx: ProviderContext) {
   return process.env.AI_PROVIDER === "claude" || !ctx.secrets.GEMINI_API_KEY;
 }
 

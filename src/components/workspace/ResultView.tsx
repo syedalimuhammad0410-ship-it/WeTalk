@@ -37,7 +37,7 @@ export function ResultView() {
           <div className="p-6 md:p-8">
             <div className="label-mono text-signal">Investigation result</div>
             <h2 className="mt-2 text-[clamp(22px,3vw,34px)] font-semibold leading-tight tracking-tight">{c.headline}</h2>
-            {lead && <div className="mt-1 text-[13.5px] text-dim">{[lead.address || lead.description, lead.country].filter(Boolean).join(" · ")}</div>}
+            {lead && <div className="mt-1 text-[13.5px] text-dim">{[lead.address || lead.description, lead.country && !(lead.address || lead.description || "").includes(lead.country) ? lead.country : null].filter(Boolean).join(" · ")}</div>}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <ConfidenceBadge value={c.confidence} />
               {inv.demo && <span className="label-mono rounded-[3px] border border-warn/40 px-1.5 py-0.5 !text-[9.5px] text-warn">Demo · public sample data</span>}

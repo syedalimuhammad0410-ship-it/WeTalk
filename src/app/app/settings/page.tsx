@@ -30,7 +30,7 @@ interface Provider {
 }
 
 const KEY_HELP: Record<string, string> = {
-  GEMINI_API_KEY: "Google Gemini vision + explanations — free key at aistudio.google.com/apikey (used when no Claude key is set)",
+  GEMINI_API_KEY: "Google Gemini — free: image reading, AI geolocation, AI chat with web/map tools, explanations. Get a key at aistudio.google.com/apikey. Preferred over Claude unless AI_PROVIDER=claude.",
   ANTHROPIC_API_KEY: "Claude multimodal vision, AI chat with tools, AI explanations and comparisons — console.anthropic.com",
   GOOGLE_CLOUD_VISION_API_KEY: "Logo, landmark, OCR and web detection (legitimate reverse-image signals) — Google Cloud console, enable Cloud Vision API",
   BRAVE_SEARCH_API_KEY: "Web, news, image and video search — api-dashboard.search.brave.com",
@@ -123,7 +123,7 @@ export default function Settings() {
 
         <Panel title="AI provider">
           <div className="grid gap-4 p-4 sm:grid-cols-2">
-            <Field label="Model" hint="Claude models only; Opus 5.5 is the default.">
+            <Field label="Model" hint="Applies when Claude is the active AI (AI_PROVIDER=claude). Gemini picks its fastest available free model automatically.">
               {sel("aiModel", [
                 ["claude-opus-5-5", "Claude Opus 5.5"],
                 ["claude-sonnet-5-5", "Claude Sonnet 5.5"],

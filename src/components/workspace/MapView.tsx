@@ -212,7 +212,7 @@ export function MapView() {
       </MapContainer>
 
       {/* controls */}
-      <div className="absolute left-14 top-3 z-[500] flex flex-wrap gap-2">
+      <div className="absolute left-14 right-16 top-3 z-[500] flex flex-wrap gap-2">
         <form
           className="flex"
           onSubmit={(e) => {
@@ -220,17 +220,17 @@ export function MapView() {
             if (q.trim().length > 1) void ws.search("maps", q.trim(), { userAdded: true });
           }}
         >
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a place…" aria-label="Search a place" className={cn(inputCls, "h-8 w-56 rounded-r-none bg-panel/95")} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a place…" aria-label="Search a place" className={cn(inputCls, "h-8 w-44 rounded-r-none !bg-panel/95 sm:w-56")} />
           <button className="h-8 rounded-r-[5px] border border-l-0 border-line-strong bg-panel/95 px-2.5 text-dim hover:text-fg" aria-label="Search">
             <Search className="size-3.5" />
           </button>
         </form>
         {tourList.length > 0 && (
-          <Button size="sm" variant={tour ? "subtle" : "outline"} className="h-8 bg-panel/95" onClick={() => setTour((t) => !t)}>
+          <Button size="sm" variant={tour ? "subtle" : "outline"} className="h-8 !bg-panel/95 backdrop-blur" onClick={() => setTour((t) => !t)}>
             {tour ? <Square className="size-3.5" /> : <Play className="size-3.5" />} {tour ? "Stop tour" : `Tour possible locations (${tourList.length})`}
           </Button>
         )}
-        <Button size="sm" variant={adding ? "subtle" : "outline"} className="h-8 bg-panel/95" onClick={() => setAdding((a) => !a)}>
+        <Button size="sm" variant={adding ? "subtle" : "outline"} className="h-8 !bg-panel/95 backdrop-blur" onClick={() => setAdding((a) => !a)}>
           <MapPinPlus className="size-3.5" /> {adding ? "Click the map…" : "Add location"}
         </Button>
       </div>

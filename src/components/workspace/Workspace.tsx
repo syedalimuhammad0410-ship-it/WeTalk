@@ -101,7 +101,7 @@ function WorkspaceInner({ id }: { id: string }) {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* top bar */}
         <div className="flex flex-wrap items-center gap-2 border-b border-line bg-panel px-4 py-2.5">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 basis-full sm:min-w-[260px] sm:flex-1 sm:basis-[260px]">
             {editTitle ? (
               <input
                 autoFocus
@@ -121,8 +121,8 @@ function WorkspaceInner({ id }: { id: string }) {
                 <Pencil className="size-3 shrink-0 text-mute opacity-0 group-hover:opacity-100" />
               </button>
             )}
-            <div className="label-mono mt-0.5 flex items-center gap-2 !text-[9.5px] text-mute">
-              {inv.demo && <span className="rounded-[2px] bg-warn/15 px-1 text-warn">DEMO · public sample data</span>}
+            <div className="label-mono mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap !text-[9.5px] text-mute">
+              {inv.demo && <span className="whitespace-nowrap rounded-[2px] bg-warn/15 px-1 text-warn">DEMO · public sample data</span>}
               <span>{inv.images.length} image{inv.images.length !== 1 && "s"}</span>
               <span>·</span>
               <span>{running ? "running" : inv.status}</span>

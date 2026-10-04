@@ -48,7 +48,7 @@ export function ChatPanel() {
         </div>
         <div>
           <div className="text-[13px] font-semibold tracking-wide">TRACE AI</div>
-          <div className="label-mono !text-[9px] text-mute">{providers?.ai ? "Claude · tools enabled" : "Investigation assistant · rules engine"}</div>
+          <div className="label-mono !text-[9px] text-mute">{providers?.ai ? `${providers.aiName || "AI"} · searches the web & maps for you` : "Investigation assistant · rules engine"}</div>
         </div>
       </div>
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">

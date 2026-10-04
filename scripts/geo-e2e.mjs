@@ -21,7 +21,14 @@ await page.fill("input[type=email]", process.env.E2E_EMAIL);
 await page.fill("input[type=password]", process.env.E2E_PASSWORD);
 await page.click("button[type=submit]");
 await page.waitForURL(/\/app$/, { timeout: 20000 });
-await page.goto(`${BASE}/app?demo=${process.env.EXAMPLE || "street"}`);
+if (process.env.UPLOAD) {
+  // upload a local photo the way a user would, then start
+  await page.locator("input[type=file]").first().setInputFiles(process.env.UPLOAD);
+  await page.waitForTimeout(1500);
+  await page.getByRole("button", { name: /Start Investigation/ }).click();
+} else {
+  await page.goto(`${BASE}/app?demo=${process.env.EXAMPLE || "street"}`);
+}
 await page.waitForURL(/\/app\/i\//, { timeout: 60000 });
 log("investigation", page.url());
 let shot = 0;
@@ -39,6 +46,10 @@ while (Date.now() - t0 < 8 * 60 * 1000) {
 log("done in", Math.round((Date.now() - t0) / 1000), "s");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(800);
+await page.getByRole("tab", { name: /^Result/ }).click();
+await page.waitForTimeout(1200);
+log("HEADLINE:", await page.locator("h2").first().innerText().catch(() => "?"));
+await page.screenshot({ path: `${OUT}/geo-result.png` });
 await page.getByRole("tab", { name: /^Evidence board/ }).click();
 await page.waitForTimeout(3500);
 await page.screenshot({ path: `${OUT}/geo-board.png` });

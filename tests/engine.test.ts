@@ -155,3 +155,24 @@ describe("exports", () => {
     expect(md).toMatch(/State Farm Arena/);
   });
 });
+
+describe("AI geolocation", () => {
+  it("lets a confident AI geolocation pick the right place among namesakes (Broadway NYC vs Broadway elsewhere)", () => {
+    const inv = blank();
+    inv.clues = [{ id: "c1", imageId: "img1", type: "text", value: "BROADWAY", weight: 0.95, origin: "ocr", engine: "florence-2", ignored: false } as unknown as Clue];
+    const sig = { text: null, logo: null, visual: null, geo: null, temporal: null, source: null, exif: null, link: null };
+    inv.locations = [
+      { id: "l1", name: "Broadway", lat: 41.0139, lng: -73.8737, kind: "road", sourceIds: [] },
+      { id: "l2", name: "Broadway, New York City", lat: 40.7831, lng: -73.9712, kind: "ai-city", sourceIds: [] },
+    ];
+    const base = { why: [], against: [], evidenceIds: [], sourceIds: [], confidence: "insufficient" as const, confidenceReasons: [], status: "active" as const, images: [] };
+    inv.candidates = [
+      { ...base, id: "a", name: "Broadway", kind: "road", locationId: "l1", city: "Dobbs Ferry", country: "United States", names: [{ name: "Broadway" }], signals: { ...sig }, derivedFrom: ["BROADWAY"] },
+      { ...base, id: "b", name: "Broadway, New York City", kind: "city", locationId: "l2", city: "New York City", country: "United States", names: [{ name: "Broadway" }, { name: "Broadway, New York City" }], signals: { ...sig, ai: 0.85 }, why: ["AI geolocation (gemini, hypothesis #1, 85% self-reported): NYC street sign style."], derivedFrom: ["AI geolocation"] },
+    ];
+    const out = assess(inv);
+    const lead = out.candidates.find((c) => c.status === "leading");
+    expect(lead?.id).toBe("b");
+    expect(out.candidates.find((c) => c.id === "a")!.against.some((a) => a.includes("AI geolocation reads the scene"))).toBe(true);
+  });
+});

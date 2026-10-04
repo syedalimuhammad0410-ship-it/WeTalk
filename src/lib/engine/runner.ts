@@ -132,16 +132,36 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
     const fresh: Candidate[] = [];
     for (const c of d.candidates || []) {
       const loc = d.locations?.find((l) => l.id === c.locationId);
+      // same place = close together on the map; a shared name alone is not enough (many places are called "Broadway")
+      const precision = loc?.kind.startsWith("ai-") ? loc.kind.slice(3) : "exact";
+      const sameNameKm = ({ exact: 2, street: 15, neighbourhood: 15, city: 30, region: 150, country: 800 } as Record<string, number>)[precision] ?? 15;
       const twin = inv.candidates.find((x) => {
-        if (compactName(x.name) === compactName(c.name) || x.names.some((n) => compactName(n.name) === compactName(c.name))) return true;
         const xl = inv.locations.find((l) => l.id === x.locationId);
-        return Boolean(loc && xl && Math.hypot(loc.lat - xl.lat, (loc.lng - xl.lng) * Math.cos((loc.lat * Math.PI) / 180)) < 0.0135);
+        const km = loc && xl ? Math.hypot(loc.lat - xl.lat, (loc.lng - xl.lng) * Math.cos((loc.lat * Math.PI) / 180)) * 111 : null;
+        const sameName = compactName(x.name) === compactName(c.name) || x.names.some((n) => compactName(n.name) === compactName(c.name));
+        if (sameName) {
+          const cityClash = c.city && (x.city || x.address) && !compactName(`${x.city || ""} ${x.address || ""}`).includes(compactName(c.city));
+          return !cityClash && (km === null || km <= sameNameKm);
+        }
+        return km !== null && km < 1.5;
       });
       if (twin) {
         twin.signals = { ...twin.signals, ai: Math.max(twin.signals.ai ?? 0, c.signals.ai ?? 0) };
         twin.why = Array.from(new Set([...twin.why, ...c.why.filter((w) => w.startsWith("AI geolocation"))]));
         twin.sourceIds = Array.from(new Set([...twin.sourceIds, ...c.sourceIds]));
-      } else fresh.push(c);
+      } else {
+        // "Broadway, New York City" vs an existing "Broadway" elsewhere: the AI version is a more specific
+        // reading of the same visible name, so it inherits that name (and its text evidence) for scoring
+        const base = compactName(c.name.split(",")[0]);
+        const namesake = inv.candidates.find((x) => base.length >= 4 && (compactName(x.name) === base || x.names.some((n) => compactName(n.name) === base)));
+        // keep both apart in the UI: the AI one is labelled with its city
+        if (namesake && compactName(c.name) === compactName(namesake.name) && c.city) c.name = `${c.name}, ${c.city}`;
+        if (namesake) {
+          c.names = [...namesake.names.filter((n) => !c.names.some((m) => compactName(m.name) === compactName(n.name))), ...c.names];
+          c.derivedFrom = Array.from(new Set([...c.derivedFrom, ...namesake.derivedFrom.filter((d) => d !== "AI geolocation")]));
+        }
+        fresh.push(c);
+      }
     }
     apply({ ...d, candidates: fresh, locations: (d.locations || []).filter((l) => fresh.some((c) => c.locationId === l.id)) });
   };
@@ -360,6 +380,11 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
       if (ai) {
         im.analysis!.ai = ai;
         im.analysis!.engines.push(ai.model);
+        // the multimodal model's description is far more reliable than the small local captioner's
+        if (ai.summary) {
+          inv = { ...inv, clues: inv.clues.filter((c) => !(c.imageId === im.id && c.engine === "florence-2 caption")) };
+          clues.push({ id: uid("clue"), imageId: im.id, type: "scene", label: "Description (AI)", value: ai.summary, weight: 0.5, origin: "ai", engine: ai.model });
+        }
         for (const t of ai.text) clues.push({ id: uid("clue"), imageId: im.id, type: "text", label: `Text (AI reading, ${t.confidence})`, value: t.text, weight: t.confidence === "high" ? 0.85 : t.confidence === "medium" ? 0.6 : 0.35, origin: "ai", engine: ai.model });
         for (const l of ai.logos) clues.push({ id: uid("clue"), imageId: im.id, type: "logo", label: `Logo · ${l.category}`, value: l.name, weight: l.confidence === "high" ? 0.85 : l.confidence === "medium" ? 0.6 : 0.35, origin: "ai", engine: ai.model });
         for (const a of ai.architecture.slice(0, 4)) clues.push({ id: uid("clue"), imageId: im.id, type: "architecture", label: "Architecture (AI)", value: a, weight: 0.4, origin: "ai", engine: ai.model });

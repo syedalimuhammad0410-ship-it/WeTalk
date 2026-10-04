@@ -255,6 +255,24 @@ export function assess(inv: Investigation): Investigation {
       }
     }
 
+    // ---- a confident AI geolocation puts a place with the same name somewhere else (namesake disambiguation)
+    if (!sig.ai && loc) {
+      for (const a of next.candidates) {
+        if (a.id === c.id || (a.signals.ai ?? 0) < 0.45) continue;
+        const al = next.locations.find((l) => l.id === a.locationId);
+        if (!al) continue;
+        const shared = a.names.some((n) => c.names.some((m) => compact(m.name) === compact(n.name)) || compact(n.name) === compact(c.name));
+        const km = haversineKm(loc, al);
+        if (shared && km > 15) {
+          const st = `AI geolocation reads the scene as ${a.city || a.name} (${Math.round(km)} km away) — a different place that shares the name “${c.names[0]?.name || c.name}”.`;
+          evs.push({ kind: "inference", polarity: "contradicts", statement: st, strength: (a.signals.ai ?? 0) >= 0.7 ? "moderate" : "weak", sourceIds: a.sourceIds.slice(0, 2), clueIds: [] });
+          against.push(st);
+          sig.geo = Math.min(sig.geo ?? 0, (a.signals.ai ?? 0) >= 0.7 ? -0.7 : -0.4);
+          break;
+        }
+      }
+    }
+
     // ---- AI geolocation estimate (a hypothesis, never direct evidence)
     if (sig.ai) {
       const aiWhy = c.why.find((w) => w.startsWith("AI geolocation"));
@@ -443,7 +461,8 @@ export function buildConclusion(inv: Investigation, lead?: Candidate): Conclusio
   const supports = evs.filter((e) => e.polarity === "supports");
   const uncertain = Array.from(new Set([...lead.against, ...lead.confidenceReasons.filter((r) => r.startsWith("Confidence limited"))])).slice(0, 6);
   const alts = inv.candidates.filter((c) => c.id !== lead.id && c.status !== "rejected").slice(0, 3);
-  const place = [lead.name, lead.city, lead.country].filter(Boolean).join(", ");
+  // skip parts the name already contains ("Broadway, New York City" + "New York City")
+  const place = [lead.name, lead.city, lead.country].filter((p, i, all): p is string => Boolean(p) && !all.slice(0, i).some((q) => q && compact(q).includes(compact(p!)))).join(", ");
   const parts: string[] = [];
   const teamEnt = inv.entities.find((e) => lead.derivedFrom.includes(e.name) && e.type === "sports_team");
   if (lead.signals.text && lead.signals.text > 0.45) parts.push(`I found visible text that matches the name of ${lead.name}${lead.names.length > 1 ? " (including names it has used historically)" : ""}.`);
