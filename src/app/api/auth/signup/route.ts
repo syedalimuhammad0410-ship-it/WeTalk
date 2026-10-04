@@ -16,7 +16,7 @@ const Body = z.object({
 });
 
 export const POST = publicApi(async (req) => {
-  await rateLimit(`signup:${clientIp(req)}`, 10, 3600, "Too many sign-up attempts from this network. Try again later.");
+  await rateLimit(`signup:${clientIp(req)}`, Number(process.env.SIGNUP_RATE_LIMIT_PER_HOUR) || 10, 3600, "Too many sign-up attempts from this network. Try again later.");
   const body = await parseBody(req, Body);
   const weak = validatePasswordStrength(body.password);
   if (weak) throw new AppError("VALIDATION", weak);

@@ -68,7 +68,7 @@ export function ruleClassify(text: string, subject = ""): RuleResult {
   if (P.interested.test(t) && !P.notInterested.test(t)) intents.push("INTERESTED");
   if (P.question.test(t) && !intents.length) intents.push("QUESTION");
 
-  const priority: Intent[] = ["UNSUBSCRIBE", "LEGAL", "COMPLAINT", "PAYMENT", "SPAM", "AUTO_REPLY", "NOT_INTERESTED", "CONFUSED", "REQUEST_FOR_MEETING", "REQUEST_FOR_PHONE_CALL", "PRICING", "INTERESTED", "QUESTION"];
+  const priority: Intent[] = ["UNSUBSCRIBE", "LEGAL", "COMPLAINT", "PAYMENT", "SPAM", "AUTO_REPLY", "NOT_INTERESTED", "CONFUSED", "REQUEST_FOR_PHONE_CALL", "REQUEST_FOR_MEETING", "PRICING", "INTERESTED", "QUESTION"];
   const primary = priority.find((p) => intents.includes(p)) ?? "OTHER";
   const confidence = primary === "OTHER" ? 30 : ["UNSUBSCRIBE", "AUTO_REPLY"].includes(primary) ? 90 : sensitive.length ? 75 : 60;
   return { intents: Array.from(new Set(intents)), sensitive, unsubscribe, autoReply, confidence, primary };
