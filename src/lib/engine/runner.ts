@@ -386,6 +386,17 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
           clues.push({ id: uid("clue"), imageId: im.id, type: "scene", label: "Description (AI)", value: ai.summary, weight: 0.5, origin: "ai", engine: ai.model });
         }
         for (const t of ai.text) clues.push({ id: uid("clue"), imageId: im.id, type: "text", label: `Text (AI reading, ${t.confidence})`, value: t.text, weight: t.confidence === "high" ? 0.85 : t.confidence === "medium" ? 0.6 : 0.35, origin: "ai", engine: ai.model });
+        // two independent readers agreeing on a text makes the OCR reading trustworthy
+        const aiTexts = ai.text.map((t) => compactName(t.text)).filter((t) => t.length >= 3);
+        inv = {
+          ...inv,
+          clues: inv.clues.map((c) => {
+            if (c.imageId !== im.id || c.origin !== "ocr" || c.type !== "text" || c.weight >= 0.8) return c;
+            const v = compactName(c.value);
+            const agreed = v.length >= 3 && aiTexts.some((a) => a.includes(v) || (v.length >= 5 && v.includes(a)));
+            return agreed ? { ...c, weight: 0.82, label: "Text (confirmed by AI reading)" } : c;
+          }),
+        };
         for (const l of ai.logos) clues.push({ id: uid("clue"), imageId: im.id, type: "logo", label: `Logo · ${l.category}`, value: l.name, weight: l.confidence === "high" ? 0.85 : l.confidence === "medium" ? 0.6 : 0.35, origin: "ai", engine: ai.model });
         for (const a of ai.architecture.slice(0, 4)) clues.push({ id: uid("clue"), imageId: im.id, type: "architecture", label: "Architecture (AI)", value: a, weight: 0.4, origin: "ai", engine: ai.model });
         for (const e of ai.environment.slice(0, 4)) clues.push({ id: uid("clue"), imageId: im.id, type: "environment", label: "Environment (AI)", value: e, weight: 0.3, origin: "ai", engine: ai.model });

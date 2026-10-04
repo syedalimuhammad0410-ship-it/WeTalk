@@ -74,7 +74,9 @@ async function ocrCanvas(c: HTMLCanvasElement) {
  */
 export async function florenceOcr(canvas: HTMLCanvasElement, opts: { tiles?: boolean; region?: Box; onProgress?: (m: string) => void } = {}): Promise<OcrLine[]> {
   await loadFlorence(opts.onProgress);
-  const passes: { box: Box }[] = [{ box: { x: 0, y: 0, w: 1, h: 1 } }];
+  // full frame + a zoomed centre tile always (subjects and names are usually central and the
+  // quadrant tiles below cut straight through the middle); quadrants add pixels for small text
+  const passes: { box: Box }[] = [{ box: { x: 0, y: 0, w: 1, h: 1 } }, { box: { x: 0.18, y: 0.18, w: 0.64, h: 0.64 } }];
   if (opts.tiles) for (const [x, y] of [[0, 0], [0.45, 0], [0, 0.45], [0.45, 0.45]]) passes.push({ box: { x, y, w: 0.55, h: 0.55 } });
   const seen = new Map<string, { text: string; box: Box; hits: number; tileHit: boolean }>();
   let i = 0;
@@ -108,8 +110,10 @@ export async function florenceOcr(canvas: HTMLCanvasElement, opts: { tiles?: boo
   }
   return [...seen.values()].map((s) => {
     const letters = s.text.replace(/[^\p{L}]/gu, "").length;
-    // with tiles enabled, real text is normally re-read in a zoomed tile; full-frame-only reads are suspect
-    const conf = opts.tiles && !s.tileHit && s.hits === 1 ? 45 : Math.min(95, 62 + (s.hits - 1) * 15 + Math.min(18, letters * 2));
+    // small text is normally re-read in a zoomed tile, so a small full-frame-only read is suspect;
+    // large text (big signs, titles) can be split by tiles and is legitimately read only on the full frame
+    const large = s.box.h >= 0.04 || s.box.w >= 0.22;
+    const conf = opts.tiles && !s.tileHit && s.hits === 1 && !large ? 45 : Math.min(95, 62 + (s.hits - 1) * 15 + Math.min(18, letters * 2) + (large ? 6 : 0));
     return { id: uid("ocr"), text: s.text, confidence: conf, box: s.box, source: opts.region ? "region" : "original", engine: "florence-2", uncertain: conf < 70 || letters < 3 } as OcrLine;
   });
 }

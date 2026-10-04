@@ -2,7 +2,7 @@
   "name": "trace",
   "version": "1.0.0",
   "private": true,
-  "description": "TRACE — Turn images into evidence. AI visual investigation & geolocation research workspace.",
+  "description": "TRACE \u2014 Turn images into evidence. AI visual investigation & geolocation research workspace.",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
@@ -10,13 +10,17 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "node scripts/e2e.mjs",
-    "hash-password": "node scripts/hash-password.mjs"
+    "hash-password": "node scripts/hash-password.mjs",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "opennextjs-cloudflare build && wrangler dev",
+    "cf:deploy": "opennextjs-cloudflare build && wrangler deploy"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
     "@netlify/plugin-nextjs": "^5.16.1",
+    "@opennextjs/cloudflare": "^1.20.8",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/leaflet": "^1.9.22",
     "@types/node": "^26.6.4",
@@ -25,7 +29,8 @@
     "playwright": "^1.63.0",
     "tailwindcss": "^4.3.3",
     "typescript": "5.9",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "wrangler": "^4.147.0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

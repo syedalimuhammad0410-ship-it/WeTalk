@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "trace-investigations",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "trace-investigations" }],
+  // investigations, accounts, settings and uploaded images (no credit card needed for KV)
+  "kv_namespaces": [{ "binding": "TRACE_KV", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+  "vars": {
+    "TRACE_STORAGE": "kv",
+    "AUTH_ALLOWED_EMAILS": "syedalimuhammad0410@gmail.com",
+    "AUTH_WELCOME_NAME": "Mr Naqvi"
+  },
+  // secrets (set with `wrangler secret put`): AUTH_SECRET, AUTH_PASSWORD_HASH, GEMINI_API_KEY
+  "observability": { "enabled": true }
+}

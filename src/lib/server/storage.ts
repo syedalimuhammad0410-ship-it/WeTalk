@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 /**
- * Storage adapter. Production uses Netlify Blobs (durable, strongly consistent);
+ * Storage adapter. Production uses Netlify Blobs or Cloudflare KV;
  * local development falls back to the filesystem under .data/. A Postgres/Supabase
  * adapter can implement the same interface (see db/schema.sql).
  */
@@ -118,6 +118,59 @@ class BlobStorage implements StorageAdapter {
   }
 }
 
+/** Minimal shape of a Cloudflare Workers KV binding (avoids a hard dependency on workers types). */
+interface KVNamespaceLike {
+  get(key: string, type: "text"): Promise<string | null>;
+  getWithMetadata<M>(key: string, type: "arrayBuffer"): Promise<{ value: ArrayBuffer | null; metadata: M | null }>;
+  put(key: string, value: string | ArrayBuffer, opts?: { metadata?: unknown }): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(opts: { prefix: string; cursor?: string; limit?: number }): Promise<{ keys: { name: string }[]; list_complete: boolean; cursor?: string }>;
+}
+
+class KVStorage implements StorageAdapter {
+  readonly name = "Cloudflare KV";
+  // bindings live on the per-request Cloudflare context
+  private async kv(): Promise<KVNamespaceLike> {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const env = (await getCloudflareContext({ async: true })).env as unknown as { TRACE_KV?: KVNamespaceLike };
+    if (!env.TRACE_KV) throw new Error("TRACE_KV binding is missing (see wrangler.jsonc).");
+    return env.TRACE_KV;
+  }
+  async getJSON<T>(key: string) {
+    const v = await (await this.kv()).get(key, "text");
+    return v ? (JSON.parse(v) as T) : null;
+  }
+  async setJSON(key: string, value: unknown) {
+    await (await this.kv()).put(key, JSON.stringify(value));
+  }
+  async getBinary(key: string) {
+    const r = await (await this.kv()).getWithMetadata<{ mime?: string }>(key, "arrayBuffer");
+    if (!r.value) return null;
+    return { data: r.value, mime: r.metadata?.mime || "application/octet-stream" };
+  }
+  async setBinary(key: string, data: ArrayBuffer, mime: string) {
+    await (await this.kv()).put(key, data, { metadata: { mime } });
+  }
+  async delete(key: string) {
+    await (await this.kv()).delete(key);
+  }
+  async list(prefix: string) {
+    const kv = await this.kv();
+    const out: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const r = await kv.list({ prefix, cursor, limit: 1000 });
+      out.push(...r.keys.map((k) => k.name));
+      cursor = r.list_complete ? undefined : r.cursor;
+    } while (cursor && out.length < 20000);
+    return out;
+  }
+}
+
+export function isCloudflareRuntime() {
+  return process.env.TRACE_STORAGE === "kv" || (typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers");
+}
+
 let adapter: StorageAdapter | null = null;
 
 export function isNetlifyRuntime() {
@@ -133,6 +186,7 @@ export function isNetlifyRuntime() {
 export function storage(): StorageAdapter {
   if (adapter) return adapter;
   const pref = process.env.TRACE_STORAGE;
+  if (pref === "kv" || (pref !== "fs" && pref !== "blobs" && isCloudflareRuntime())) return (adapter = new KVStorage());
   const useBlobs = pref === "blobs" || (pref !== "fs" && isNetlifyRuntime());
   adapter = useBlobs ? new BlobStorage() : new FsStorage(path.join(process.cwd(), ".data"));
   return adapter;

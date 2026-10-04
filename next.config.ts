@@ -10,6 +10,8 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   serverExternalPackages: ["sharp"],
+  // the Cloudflare (OpenNext) bundler resolves this package's ESM build, which file tracing would otherwise omit
+  outputFileTracingIncludes: { "*": ["node_modules/@opentelemetry/api/build/esm/**"] },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
