@@ -11,6 +11,8 @@ const CONCURRENCY = 2;
 let active = 0;
 
 export function kickRunner() {
+  // Lazily start the in-process runner (dev starts it here so it always runs current code).
+  if (!started && process.env.JOB_RUNNER !== "external" && process.env.NODE_ENV !== "test" && !process.env.VITEST) startInlineRunner();
   wake?.();
 }
 

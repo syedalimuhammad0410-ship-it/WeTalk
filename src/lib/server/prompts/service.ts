@@ -123,10 +123,12 @@ export async function generatePrompt(workspaceId: string, businessId: string, us
     db.automationSettings.findUnique({ where: { workspaceId } }),
     db.generatedPrompt.findFirst({ where: { workspaceId, businessId }, orderBy: { createdAt: "desc" } }),
   ]);
+  const campaigns = await db.campaign.findMany({ where: { workspaceId, leads: { some: { businessId } }, promptStrategy: { not: "" } }, select: { name: true, promptStrategy: true } });
+  const extra = [settings?.promptBehavior ?? "", ...campaigns.map((c) => `Campaign “${c.name}”: ${c.promptStrategy}`)].filter((x) => x.trim()).join("\n\n");
   const merged: PromptOptions = {
     ...((existing?.options ?? {}) as PromptOptions),
     ...options,
-    extraInstructions: options.extraInstructions ?? settings?.promptBehavior ?? "",
+    extraInstructions: options.extraInstructions ?? extra,
   };
   const ctx = await loadPromptContext(workspaceId, businessId, merged);
   const best = await buildBestPrompt(ctx, { useAi: settings?.aiPromptGeneration !== false, workspaceId });

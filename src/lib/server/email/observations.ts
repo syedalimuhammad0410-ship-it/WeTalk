@@ -29,7 +29,7 @@ export function outreachObservations(business: Business, audit: (WebsiteAudit & 
     const key = f.code.replace("feature.missing.", "");
     const def = FEATURES[key];
     if (!def) continue;
-    out.push({ code: f.code, weight: 80, observation: `I didn't see a way to ${featureVerb(key)} on the site`, opportunity: `${def.name.toLowerCase()} — ${def.why.charAt(0).toLowerCase()}${def.why.slice(1).replace(/\.$/, "")}` });
+    out.push({ code: f.code, weight: 80 - pb.features.findIndex((x) => x.key === key), observation: `I didn't see a way to ${featureVerb(key)} on the site`, opportunity: OPPORTUNITY_PHRASES[key] ?? `adding ${def.name.toLowerCase()}` });
   }
   if (has("mobile.viewport")?.severity && has("mobile.viewport")!.severity !== "POSITIVE") out.push({ code: "mobile.viewport", weight: 75, observation: "the site doesn't appear to be set up for phones — it loads as a zoomed-out desktop page on mobile", opportunity: "a mobile-first layout, which matters because most local searches happen on phones" });
   if (has("trust.no_https")) out.push({ code: "trust.no_https", weight: 70, observation: "the site isn't served over HTTPS, so browsers label it “Not secure”", opportunity: "moving to HTTPS, which removes that warning and protects form submissions" });
@@ -70,3 +70,26 @@ function featureVerb(key: string) {
     }[key] ?? `find ${FEATURES[key]?.name.toLowerCase() ?? key}`
   );
 }
+
+const OPPORTUNITY_PHRASES: Record<string, string> = {
+  quote_request: "a short online quote request (service, property details, preferred date) so people can ask for a price without having to call",
+  online_booking: "online booking, so customers can pick a time even outside business hours",
+  reservations: "a clear “Reserve a table” button linked to a reservation system",
+  online_menu: "a fast, phone-friendly HTML menu instead of a PDF or image",
+  online_ordering: "a direct “Order online” option for pickup or delivery",
+  click_to_call: "a tap-to-call button, since most local visitors browse on their phones",
+  contact_form: "a simple contact form for visitors who aren't ready to call",
+  service_areas: "a clear list of the areas you serve",
+  reviews: "a section showcasing real customer reviews",
+  gallery: "a gallery of real photos of your work",
+  before_after: "before-and-after photos of real jobs",
+  hours_location: "clear hours, address and a directions link",
+  patient_info: "a new-patient page explaining what to expect and how to book",
+  case_consultation: "a simple, confidential consultation request form",
+  enrollment: "an easy way for parents to book a tour",
+  class_schedule: "an up-to-date class schedule with a booking link",
+  listings: "a current listings section",
+  rooms_booking: "direct room booking on your own site",
+  service_pages: "a dedicated page for each main service",
+  credentials: "a short section showing your licensing and insurance",
+};

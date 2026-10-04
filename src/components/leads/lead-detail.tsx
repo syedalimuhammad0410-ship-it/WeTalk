@@ -39,7 +39,7 @@ export function LeadDetail({ data, initialTab, perms, currentUserId }: { data: L
     setTab(t);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", t);
-    window.history.replaceState(null, "", url.toString());
+    window.history.replaceState(window.history.state, "", url.toString());
   };
 
   async function action<T>(key: string, fn: () => Promise<T>, ok: (r: T) => string, after?: (r: T) => void) {
@@ -47,8 +47,9 @@ export function LeadDetail({ data, initialTab, perms, currentUserId }: { data: L
     try {
       const r = await fn();
       toast.success(ok(r));
-      after?.(r);
       router.refresh();
+      // Defer URL/tab updates so they don't race the refresh.
+      if (after) setTimeout(() => after(r), 0);
     } catch (e) {
       toast.error("Action failed", (e as Error).message);
     } finally {

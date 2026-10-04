@@ -74,12 +74,10 @@ export function detectFeatures(playbook: Playbook, site: SiteData): FeaturePrese
       const f = forms.find((x) => x.fields.length >= 2);
       evidence = f ? `Form with ${f.fields.length} fields (${f.purpose})` : null;
     } else if (ref.key === "quote_request") {
-      const f = forms.find((x) => x.purpose === "quote");
-      if (f) evidence = `Quote form with ${f.fields.length} fields`;
-      else {
-        const m = def.detect.map((re) => blob.match(re)).find(Boolean);
-        evidence = m && forms.length ? `Mentions “${m[0]}” and has a form` : m ? `Mentions “${m[0]}” (no structured form detected)` : null;
-      }
+      // A quote path only counts when visitors can actually submit one (a form), not when the text merely mentions estimates.
+      const f = forms.find((x) => x.purpose === "quote") ?? forms.find((x) => ["contact", "booking"].includes(x.purpose) && x.fields.length >= 3);
+      const m = def.detect.map((re) => blob.match(re)).find(Boolean);
+      evidence = f ? (f.purpose === "quote" ? `Quote form with ${f.fields.length} fields` : m ? `Mentions “${m[0]}” and has a ${f.purpose} form` : null) : null;
     } else {
       for (const re of def.detect) {
         const m = blob.match(re);
