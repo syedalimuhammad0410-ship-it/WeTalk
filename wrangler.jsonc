@@ -7,7 +7,7 @@
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "trace-investigations" }],
   // investigations, accounts, settings and uploaded images (no credit card needed for KV)
-  "kv_namespaces": [{ "binding": "TRACE_KV", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+  "kv_namespaces": [{ "binding": "TRACE_KV", "id": "f751cc80ab8f4e72aab0b8d50cfb3c75" }],
   "vars": {
     "TRACE_STORAGE": "kv",
     "AUTH_ALLOWED_EMAILS": "syedalimuhammad0410@gmail.com",

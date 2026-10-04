@@ -434,3 +434,22 @@ export async function internetArchive(q: string, n = 8): Promise<ProviderResult<
     return wrapError("internet-archive", e);
   }
 }
+
+// ---------------- Marginalia (keyless public API, independent web index) ----------------
+export const marginalia: SearchProvider = {
+  id: "marginalia",
+  label: "Marginalia web search",
+  configured: () => true,
+  async searchWeb(q, n = 8) {
+    try {
+      const u = `https://api.marginalia.nu/public/search/${encodeURIComponent(q.replace(/\//g, " "))}?count=${n}`;
+      const { data, cached, ms } = await fetchJson<{ results?: { url: string; title: string; description?: string }[] }>(u, { provider: "marginalia", op: "search", cacheTtl: DAY, timeoutMs: 4500, retries: 0 });
+      const items: WebHit[] = (data.results || [])
+        .filter((r) => /^https?:\/\//.test(r.url) && !isLowValueUrl(r.url))
+        .map((r) => ({ title: strip(r.title || r.url), url: r.url, snippet: strip(r.description || "").slice(0, 300), publisher: hostOf(r.url) }));
+      return { provider: "marginalia", status: items.length ? "ok" : "empty", items, cached, ms };
+    } catch (e) {
+      return wrapError("marginalia", e);
+    }
+  },
+};

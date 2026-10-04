@@ -16,6 +16,9 @@ export function transformers(): Promise<TJS> {
   if (!tjsP) {
     tjsP = import(/* webpackIgnore: true */ /* @vite-ignore */ CDN as string).then((T: TJS) => {
       T.env.allowLocalModels = false;
+      // Hugging Face rejects model downloads whose Referer is a *.workers.dev page (404 without CORS),
+      // so model files are fetched without a referrer — this works the same on every host.
+      T.env.fetch = (input: string | URL, init?: RequestInit) => fetch(input, { ...init, referrerPolicy: "no-referrer" });
       return T;
     });
     tjsP.catch(() => (tjsP = null));

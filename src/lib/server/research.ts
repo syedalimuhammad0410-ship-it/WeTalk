@@ -5,7 +5,8 @@ import { compact, hostOf, norm, nowIso, pLimit, textSupport, uid, uniqBy, yearOf
 import { fetchJson } from "./http";
 import type { ProviderContext } from "./settings";
 import { classify, getEntities, getLabels, nameHistory, type EntityClass, type WDEntity } from "@/lib/providers/wikidata";
-import { commonsImages, gdelt, searchHistoricalNewspapers, wikipediaSummary, webProviders, youtube, brave, duckduckgo, wikipedia, openverseImages, internetArchive } from "@/lib/providers/search";
+import { commonsImages, gdelt, searchHistoricalNewspapers, wikipediaSummary, webProviders, youtube, brave, duckduckgo, marginalia, wikipedia, openverseImages, internetArchive } from "@/lib/providers/search";
+import { isCloudflareRuntime } from "./storage";
 import { mapProvider } from "@/lib/providers/maps";
 import type { ProviderResult, WebHit } from "@/lib/providers/types";
 
@@ -110,7 +111,9 @@ export async function runSearch(req: SearchRequest, ctx: ProviderContext): Promi
     const paid = webProviders(ctx).filter((p) => p.id !== "wikipedia").slice(0, 2);
     await fanOut("web", "reference", [
       ...paid.map((p) => ({ id: p.id, run: () => p.searchWeb!(req.query, 8) })),
-      { id: "duckduckgo", run: () => duckduckgo.searchWeb!(req.query, 10) },
+      // DuckDuckGo blocks requests from Cloudflare's network, so it is skipped there
+      ...(isCloudflareRuntime() ? [] : [{ id: "duckduckgo", run: () => duckduckgo.searchWeb!(req.query, 10) }]),
+      { id: "marginalia", run: () => marginalia.searchWeb!(req.query, 8) },
       { id: "wikipedia", run: () => wikipedia.searchWeb!(req.query, 6) },
     ]);
   } else if (req.kind === "news") {
@@ -118,7 +121,7 @@ export async function runSearch(req: SearchRequest, ctx: ProviderContext): Promi
     await fanOut("news", "news", [
       ...(b.configured() ? [{ id: b.id, run: () => b.searchNews!(req.query, 8) }] : []),
       { id: "gdelt", run: () => gdelt.searchNews!(req.query, 8) },
-      { id: "duckduckgo", run: () => duckduckgo.searchNews!(req.query, 8) },
+      ...(isCloudflareRuntime() ? [] : [{ id: "duckduckgo", run: () => duckduckgo.searchNews!(req.query, 8) }]),
     ]);
   } else if (req.kind === "videos") {
     const yt = youtube(ctx);
@@ -975,8 +978,9 @@ export async function verifyGeoGuess(g: GeoGuessInput, ctx: ProviderContext): Pr
 
   // 2. real web results that mention the hypothesis (sources come only from search engines, never from the model)
   const wq = (g.searchQuery || [g.name, g.city || g.country].filter(Boolean).join(" ")).slice(0, 200);
-  const webQuery = q("ai-geolocation", wq, "web", "duckduckgo");
-  const web = await duckduckgo.searchWeb!(wq, 6);
+  const webProvider = isCloudflareRuntime() ? marginalia : duckduckgo;
+  const webQuery = q("ai-geolocation", wq, "web", webProvider.id);
+  const web = await webProvider.searchWeb!(wq, 6);
   finishQuery(webQuery, web);
   d.queries.push(webQuery);
   webHitsToDelta(d, webQuery, web.items, "reference");
