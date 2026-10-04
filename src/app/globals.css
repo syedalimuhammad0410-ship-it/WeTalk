@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens (RGB triplets so Tailwind can apply opacity). */
+:root {
+  --bg: 250 250 249;
+  --surface: 255 255 255;
+  --subtle: 245 245 244;
+  --border: 231 229 228;
+  --fg: 23 23 23;
+  --muted: 87 83 78;
+  --faint: 140 135 130;
+  --accent: 79 70 229;
+  --accent-fg: 255 255 255;
+  --success: 22 163 74;
+  --warning: 202 138 4;
+  --danger: 220 38 38;
+  --info: 37 99 235;
+  --sidebar: 17 17 19;
+  --sidebar-fg: 236 236 238;
+  --sidebar-muted: 150 150 160;
+  --sidebar-border: 38 38 44;
+  --sidebar-active: 36 36 42;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: 12 12 14;
+  --surface: 20 20 23;
+  --subtle: 28 28 32;
+  --border: 41 41 47;
+  --fg: 237 237 240;
+  --muted: 163 163 172;
+  --faint: 113 113 122;
+  --accent: 129 140 248;
+  --accent-fg: 12 12 20;
+  --success: 74 222 128;
+  --warning: 250 204 21;
+  --danger: 248 113 113;
+  --info: 96 165 250;
+  --sidebar: 9 9 11;
+  --sidebar-fg: 236 236 238;
+  --sidebar-muted: 140 140 150;
+  --sidebar-border: 32 32 38;
+  --sidebar-active: 30 30 36;
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body {
+  @apply bg-bg text-fg antialiased;
+  font-feature-settings: "cv11", "ss01";
+  text-rendering: optimizeLegibility;
+}
+
+:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; border-radius: 6px; }
+
+::selection { background: rgb(var(--accent) / 0.2); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+@layer components {
+  .card { @apply rounded-xl border border-border bg-surface shadow-card; }
+  .input {
+    @apply block w-full rounded-lg border border-border bg-surface px-3 py-2 text-[15px] text-fg placeholder:text-faint shadow-sm transition-colors sm:text-sm;
+    @apply focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .label { @apply mb-1.5 block text-[13px] font-medium text-fg; }
+  .hint { @apply mt-1 text-xs text-muted; }
+  .table-base { @apply w-full border-separate border-spacing-0 text-sm; }
+  .table-base th { @apply sticky top-0 z-[1] border-b border-border bg-subtle/80 px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted backdrop-blur; }
+  .table-base td { @apply border-b border-border px-3 py-2.5 align-middle; }
+  .table-base tbody tr { @apply transition-colors hover:bg-subtle/60; }
+  .kbd { @apply rounded border border-border bg-subtle px-1.5 py-0.5 font-mono text-[11px] text-muted; }
+  .prose-app h2 { @apply mt-8 text-lg font-semibold; }
+  .prose-app h3 { @apply mt-6 font-semibold; }
+  .prose-app p, .prose-app li { @apply text-sm leading-6 text-muted; }
+  .prose-app ul { @apply ml-5 list-disc space-y-1; }
+  .prose-app code { @apply rounded bg-subtle px-1 py-0.5 font-mono text-[12.5px] text-fg; }
+  .prose-app pre { @apply overflow-x-auto rounded-lg border border-border bg-subtle p-3 font-mono text-xs; }
+}
+
+.scrollbar-thin { scrollbar-width: thin; }
