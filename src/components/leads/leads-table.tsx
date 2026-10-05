@@ -10,6 +10,7 @@ import { formatNumber, timeAgo } from "@/lib/utils";
 import { StatusBadge, WebsiteBadge } from "./status-badge";
 import { BulkBar } from "./bulk-bar";
 import type { Options, Perms } from "./leads-view";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 export type LeadRow = {
   id: string; name: string; category: string | null; businessType: string | null; city: string | null; region: string | null; phone: string | null; email: string | null; website: string | null;
@@ -66,9 +67,9 @@ export function LeadsTable({ data, options, perms, onPage }: { data: { total: nu
                   <td className="text-right"><ScoreBadge score={r.opportunityScore} label="Opportunity score" /></td>
                   <td><StatusBadge status={r.status} /></td>
                   <td className="whitespace-nowrap text-xs text-muted">
-                    {r.doNotContact ? <span className="inline-flex items-center gap-1 text-danger"><ShieldOff className="h-3.5 w-3.5" /> Do not contact</span> : r.email ? <span className="inline-flex items-center gap-1"><Mail className="h-3.5 w-3.5" /> {r.lastResponseAt ? "Replied" : r.lastContactedAt ? `Contacted ${timeAgo(r.lastContactedAt)}` : "Has email"}</span> : "Not found"}
+                    {r.doNotContact ? <span className="inline-flex items-center gap-1 text-danger"><ShieldOff className="h-3.5 w-3.5" /> Do not contact</span> : r.email ? <span className="inline-flex items-center gap-1"><Mail className="h-3.5 w-3.5" /> {r.lastResponseAt ? "Replied" : r.lastContactedAt ? `Contacted $<RelTime d={r.lastContactedAt} />` : "Has email"}</span> : "Not found"}
                   </td>
-                  <td className="whitespace-nowrap text-xs text-muted">{timeAgo(r.discoveredAt)}</td>
+                  <td className="whitespace-nowrap text-xs text-muted"><RelTime d={r.discoveredAt} /></td>
                 </tr>
               ))}
             </tbody>

@@ -41,6 +41,9 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
     db.tag.findMany({ where: { workspaceId: ws }, select: { name: true } }),
     db.emailAccount.findFirst({ where: { workspaceId: ws, isDefault: true }, select: { provider: true, emailAddress: true } }),
   ]);
+  const compliance = await db.complianceSettings.findUnique({ where: { workspaceId: ws }, select: { dataRetentionDays: true } });
+  const staleDays = business.source === "GOOGLE_PLACES" && business.sourceFetchedAt && compliance?.dataRetentionDays ? Math.floor((Date.now() - business.sourceFetchedAt.getTime()) / 86400_000) : 0;
+  const listingStale = compliance?.dataRetentionDays ? staleDays > compliance.dataRetentionDays : false;
   const typeInfo = classifyBusinessType({ category: business.category, name: business.name });
   const playbook = getPlaybook(business.businessType ?? typeInfo.playbook.id);
   let sendBlocker: string | null = null;
@@ -61,6 +64,7 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
     allFeatures: Object.values(FEATURES).map((f) => ({ key: f.key, name: f.name })),
     emailAccount,
     sendBlocker,
+    listingStale: listingStale ? staleDays : null,
   };
   return (
     <LeadDetail

@@ -12,6 +12,7 @@ import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Field, Textarea, Select } from "../ui/form";
 import type { Perms } from "./leads-view";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 export type Column = { status: LeadStatusT; count: number; leads: { id: string; name: string; city: string | null; category: string | null; opportunityScore: number | null; websiteScore: number | null; websiteClass: string | null; statusChangedAt: string; doNotContact: boolean; isDemo: boolean; email: string | null }[] };
 
@@ -80,7 +81,7 @@ export function PipelineBoard({ columns: initial, perms }: { columns: Column[]; 
                       <div className="truncate text-xs text-muted">{[l.category, l.city].filter(Boolean).join(" · ") || "—"}</div>
                       <div className="mt-2 flex items-center justify-between text-xs text-muted">
                         <span>Opp <ScoreBadge score={l.opportunityScore} /></span>
-                        <span title={new Date(l.statusChangedAt).toLocaleString()}>{timeAgo(l.statusChangedAt)}</span>
+                        <span title={new Date(l.statusChangedAt).toLocaleString()}><RelTime d={l.statusChangedAt} /></span>
                       </div>
                     </div>
                   </div>

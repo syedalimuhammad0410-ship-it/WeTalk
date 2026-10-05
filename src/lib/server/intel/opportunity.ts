@@ -34,13 +34,13 @@ export function computeOpportunity(i: OpportunityInput) {
 
   switch (i.websiteState) {
     case "NONE":
-      add("No website detected in available sources", 45, "VERIFIED");
+      add("No website detected in available sources", 60, "VERIFIED");
       break;
     case "SOCIAL_ONLY":
-      add("Only a social-media/directory profile is listed as the website", 40, "VERIFIED");
+      add("Only a social-media/directory profile is listed as the website", 55, "VERIFIED");
       break;
     case "UNAVAILABLE":
-      add("Listed website could not be loaded", 40, "VERIFIED");
+      add("Listed website could not be loaded", 55, "VERIFIED");
       break;
     case "BLOCKED":
       add("Website could not be analysed automatically (manual review needed)", 5, "VERIFIED");

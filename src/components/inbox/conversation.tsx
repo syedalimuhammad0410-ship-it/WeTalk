@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/client";
 import { cn, formatDateTime, timeAgo } from "@/lib/utils";
 import { INTENT_META } from "@/lib/constants";
 import { StatusBadge, WebsiteBadge } from "../leads/status-badge";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 type Perms = { approve: boolean; send: boolean; compose: boolean; edit: boolean };
 
@@ -113,7 +114,7 @@ export function Conversation({ conv, followUps, leadOptions, perms }: { conv: an
       </Card>
       {pending && (
         <Card className="p-4">
-          <div className="mb-2 flex items-center justify-between"><span className="flex items-center gap-1.5 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-500" /> AI draft</span><span className="text-xs text-muted">{pending.confidence}% · {timeAgo(pending.createdAt)}</span></div>
+          <div className="mb-2 flex items-center justify-between"><span className="flex items-center gap-1.5 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-500" /> AI draft</span><span className="text-xs text-muted">{pending.confidence}% · <RelTime d={pending.createdAt} /></span></div>
           {editingDraft ? <Textarea value={draftBody} onChange={(e) => setDraftBody(e.target.value)} className="min-h-[220px] text-sm" aria-label="Edit AI draft" /> : <p className="whitespace-pre-wrap rounded-lg bg-subtle p-3 text-sm">{pending.body}</p>}
           {pending.missingInfo?.length > 0 && <p className="mt-2 text-xs text-warning">Missing configured info: {pending.missingInfo.join(", ")}. The draft avoids inventing it.</p>}
           {pending.reviewReasons?.length > 0 && <ul className="mt-2 space-y-0.5 text-[11px] text-muted">{pending.reviewReasons.map((r: string) => <li key={r}>• {r}</li>)}</ul>}
@@ -129,7 +130,8 @@ export function Conversation({ conv, followUps, leadOptions, perms }: { conv: an
       {!pending && lastInbound && perms.compose && !b?.doNotContact && (
         <Button variant="outline" className="w-full" loading={busy === "regen"} loadingText="Generating response…" onClick={() => run("regen", () => apiFetch(`/api/conversations/${conv.id}/regenerate`, { body: {} }), "Analysis refreshed")}><Sparkles className="h-4 w-4" /> Generate AI response</Button>
       )}
-      {perms.send && b && (
+      {perms.send && b && b.doNotContact && <Card className="p-4 text-sm text-muted">AI is disabled because this business is marked Do Not Contact. An admin can reverse that from the lead page (with a recorded reason).</Card>}
+      {perms.send && b && !b.doNotContact && (
         <Card className="p-4">
           <div className="mb-2 text-sm font-semibold">AI controls</div>
           <div className="grid grid-cols-2 gap-2">
@@ -169,7 +171,7 @@ export function Conversation({ conv, followUps, leadOptions, perms }: { conv: an
                   <div className={cn("max-w-[92%] rounded-2xl border px-4 py-3 sm:max-w-[80%]", m.direction === "OUTBOUND" ? "border-accent/20 bg-accent/[0.06]" : "border-border bg-surface")}>
                     <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                       <span className="font-medium text-fg">{m.direction === "OUTBOUND" ? "You" : (b?.name ?? m.fromAddress)}</span>
-                      <span title={formatDateTime(m.sentAt ?? m.receivedAt ?? m.createdAt)}>{formatDateTime(m.sentAt ?? m.receivedAt ?? m.createdAt)}</span>
+                      <span><DateTimeText d={m.sentAt ?? m.receivedAt ?? m.createdAt} /></span>
                       {m.aiGenerated && <Badge tone="violet">AI-drafted</Badge>}
                       {m.kind === "FOLLOW_UP" && <Badge tone="orange">Follow-up</Badge>}
                       {m.status === "FAILED" && <Badge tone="red">Failed</Badge>}

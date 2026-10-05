@@ -12,6 +12,7 @@ import { Dialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
 import { formatDateTime } from "@/lib/utils";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 type T = "due" | "scheduled" | "sent" | "stopped";
 
@@ -57,7 +58,7 @@ export function FollowUpsView({ items, canSend, automatic }: { items: any[]; can
               <li key={f.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2"><Link href={`/leads/${f.business.id}`} className="font-medium hover:text-accent">{f.business.name}</Link><Badge tone="slate">Step {f.step}</Badge>{f.campaign && <Badge tone="indigo">{f.campaign.name}</Badge>}{f.automatic && <Badge tone="violet">Automatic</Badge>}</div>
-                  <div className="mt-0.5 text-xs text-muted">{tab === "sent" ? "Sent" : "Scheduled for"} {formatDateTime(f.scheduledFor)}{f.cancelReason && ` · ${f.cancelReason}`}</div>
+                  <div className="mt-0.5 text-xs text-muted">{tab === "sent" ? "Sent" : "Scheduled for"} <DateTimeText d={f.scheduledFor} />{f.cancelReason && ` · ${f.cancelReason}`}</div>
                   {f.subject && <div className="mt-1 truncate text-[13px]">{f.subject}</div>}
                 </div>
                 {canSend && ["PENDING_APPROVAL", "SCHEDULED"].includes(f.status) && (

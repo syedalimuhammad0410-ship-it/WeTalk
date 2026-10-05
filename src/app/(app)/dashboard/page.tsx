@@ -9,6 +9,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { formatNumber, greeting, timeAgo } from "@/lib/utils";
 import { LEAD_STATUSES, LEAD_STATUS_META } from "@/lib/constants";
 import { Greeting } from "@/components/dashboard/greeting";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 export const metadata = { title: "Dashboard" };
 
@@ -113,7 +114,7 @@ export default async function DashboardPage() {
                   <p className="mt-0.5 text-xs text-faint">
                     {a.business && <Link href={`/leads/${a.business.id}`} className="font-medium text-muted hover:text-accent">{a.business.name}</Link>}
                     {a.business && " · "}
-                    {a.user?.name ?? "System"} · {timeAgo(a.createdAt)}
+                    {a.user?.name ?? "System"} · <RelTime d={a.createdAt} />
                   </p>
                 </li>
               ))}

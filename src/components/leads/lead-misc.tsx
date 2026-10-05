@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/client";
 import { formatDateTime, timeAgo } from "@/lib/utils";
 import { INTENT_META } from "@/lib/constants";
 import type { LeadData, LeadPerms } from "./types";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 export function ConversationTab({ data }: { data: LeadData }) {
   if (!data.conversations.length) return <Card><EmptyState icon={<MessagesSquare className="h-5 w-5" />} title="No conversations yet" description="Conversations appear here once you send outreach or the business emails you." /></Card>;
@@ -24,7 +25,7 @@ export function ConversationTab({ data }: { data: LeadData }) {
               <MessagesSquare className="h-4 w-4 text-muted" />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 text-sm font-medium">{c.subject}{c.unread && <Badge tone="indigo">Unread</Badge>}{c.needsHumanReview && <Badge tone="amber">Needs review</Badge>}{c.lastIntent && <Badge tone={INTENT_META[c.lastIntent]?.tone}>{INTENT_META[c.lastIntent]?.label}</Badge>}</div>
-                <div className="text-xs text-muted">{c.counterpartEmail} · {timeAgo(c.lastMessageAt)}</div>
+                <div className="text-xs text-muted">{c.counterpartEmail} · <RelTime d={c.lastMessageAt} /></div>
               </div>
             </Link>
           </li>
@@ -48,7 +49,7 @@ export function FollowUpsTab({ data, perms }: { data: LeadData; perms: LeadPerms
           <li key={f.id} className="flex items-center gap-3 px-5 py-3 text-sm">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-subtle text-xs font-semibold">{f.step}</span>
             <div className="min-w-0 flex-1">
-              <div className="font-medium">Follow-up {f.step} · {formatDateTime(f.scheduledFor)}</div>
+              <div className="font-medium">Follow-up {f.step} · <DateTimeText d={f.scheduledFor} /></div>
               <div className="text-xs text-muted">{f.automatic ? "Automatic" : "Approval required"}{f.cancelReason && ` · ${f.cancelReason}`}</div>
             </div>
             <Badge tone={{ SCHEDULED: "blue", PENDING_APPROVAL: "amber", SENT: "green", CANCELLED: "zinc", FAILED: "red" }[f.status as string] as any}>{f.status.replace("_", " ").toLowerCase()}</Badge>
@@ -70,7 +71,7 @@ export function ActivityTab({ data }: { data: LeadData }) {
             <span className="relative z-[1] mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border-2 border-surface bg-accent ring-2 ring-accent/20" aria-hidden />
             <div>
               <p className="text-sm">{a.summary}</p>
-              <p className="text-xs text-faint">{formatDateTime(a.createdAt)} · {a.user?.name ?? "System"}</p>
+              <p className="text-xs text-faint"><DateTimeText d={a.createdAt} /> · {a.user?.name ?? "System"}</p>
             </div>
           </li>
         ))}
@@ -93,7 +94,7 @@ export function NotesTab({ data, perms, currentUserId }: { data: LeadData; perms
           <Card key={n.id} className="p-4">
             <p className="whitespace-pre-wrap text-sm">{n.body}</p>
             <div className="mt-2 flex items-center justify-between text-xs text-faint">
-              <span>{n.author?.name ?? "Unknown"} · {formatDateTime(n.createdAt)}</span>
+              <span>{n.author?.name ?? "Unknown"} · <DateTimeText d={n.createdAt} /></span>
               {(n.author?.id === currentUserId || perms.del) && <button className="text-faint hover:text-danger" aria-label="Delete note" onClick={async () => { await apiFetch(`/api/notes/${n.id}`, { method: "DELETE" }).catch((e) => toast.error((e as Error).message)); router.refresh(); }}><Trash2 className="h-3.5 w-3.5" /></button>}
             </div>
           </Card>

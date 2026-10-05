@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/client";
 import { timeAgo } from "@/lib/utils";
 import { INTENT_META } from "@/lib/constants";
 import { SectionTabs } from "./inbox-list";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 export function ReviewQueue({ items, counts, perms }: { items: any[]; counts: Record<string, number>; perms: { approve: boolean; send: boolean } }) {
   return (
@@ -43,7 +44,7 @@ function ReviewCard({ c, perms }: { c: any; perms: { approve: boolean; send: boo
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
         <div className="min-w-0">
           <Link href={`/inbox/${c.id}`} className="font-semibold hover:text-accent">{c.business?.name ?? c.counterpartEmail}</Link>
-          <span className="ml-2 text-xs text-muted">{c.counterpartEmail} · {timeAgo(c.lastMessageAt)}</span>
+          <span className="ml-2 text-xs text-muted">{c.counterpartEmail} · <RelTime d={c.lastMessageAt} /></span>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {c.lastIntent && <Badge tone={INTENT_META[c.lastIntent]?.tone}>{INTENT_META[c.lastIntent]?.label}</Badge>}

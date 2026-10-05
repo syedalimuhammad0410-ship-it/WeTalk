@@ -14,6 +14,7 @@ import { AI_MODELS, RESPONSE_TONES } from "@/lib/constants";
 import { ROLE_LABEL } from "@/lib/permissions";
 import { IntegrationKeyForm } from "./integration-key-form";
 import { EmailConnect } from "./email-connect";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 type D = any;
 const can = (d: D, p: string) => (d.permissions as string[]).includes(p);
@@ -155,7 +156,7 @@ function Users({ d }: { d: D }) {
             </li>
           ))}
         </ul>
-        {d.invitations.length > 0 && <div className="text-sm"><div className="mb-1 font-medium">Pending invitations</div>{d.invitations.map((i: any) => <div key={i.id} className="text-muted">{i.email} · {i.role.toLowerCase()} · expires {formatDateTime(i.expiresAt)}</div>)}</div>}
+        {d.invitations.length > 0 && <div className="text-sm"><div className="mb-1 font-medium">Pending invitations</div>{d.invitations.map((i: any) => <div key={i.id} className="text-muted">{i.email} · {i.role.toLowerCase()} · expires <DateTimeText d={i.expiresAt} /></div>)}</div>}
       </Section>
       {manage && (
         <Section title="Invite a teammate" footer={<Button loading={busy} disabled={!email} onClick={async () => { setBusy(true); try { const r = await apiFetch<{ link: string }>("/api/workspace/members", { body: { email, role } }); setLink(r.link); setEmail(""); router.refresh(); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); } }}><UserPlus className="h-4 w-4" /> Create invite link</Button>}>
@@ -374,7 +375,7 @@ function Compliance({ d }: { d: D }) {
         {!dis && <form className="flex gap-2" onSubmit={async (e) => { e.preventDefault(); try { await apiFetch("/api/settings/suppressions", { body: { value: sup } }); setSup(""); router.refresh(); } catch (err) { toast.error((err as Error).message); } }}><Input value={sup} onChange={(e) => setSup(e.target.value)} placeholder="name@example.com or @example.com" aria-label="Add suppression" /><Button type="submit" disabled={!sup}>Add</Button></form>}
         <ul className="max-h-80 divide-y divide-border overflow-y-auto rounded-xl border border-border">
           {d.suppressions.length === 0 && <li className="px-4 py-6 text-center text-sm text-muted">Empty.</li>}
-          {d.suppressions.map((s: any) => <li key={s.id} className="flex items-center gap-3 px-4 py-2 text-sm"><span className="flex-1 font-mono text-xs">{s.value}</span><span className="text-xs text-muted">{s.reason} · {formatDateTime(s.createdAt)}</span>{can(d, "doNotContact.reverse") && <button className="text-faint hover:text-danger" aria-label={`Remove ${s.value}`} onClick={() => setRemoving(s.value)}><Trash2 className="h-3.5 w-3.5" /></button>}</li>)}
+          {d.suppressions.map((s: any) => <li key={s.id} className="flex items-center gap-3 px-4 py-2 text-sm"><span className="flex-1 font-mono text-xs">{s.value}</span><span className="text-xs text-muted">{s.reason} · <DateTimeText d={s.createdAt} /></span>{can(d, "doNotContact.reverse") && <button className="text-faint hover:text-danger" aria-label={`Remove ${s.value}`} onClick={() => setRemoving(s.value)}><Trash2 className="h-3.5 w-3.5" /></button>}</li>)}
         </ul>
       </Section>
       <Dialog open={Boolean(removing)} onClose={() => setRemoving(null)} title={`Allow contacting ${removing}?`} description="Only if the contact explicitly opted back in. The justification is logged." footer={<><Button variant="outline" onClick={() => setRemoving(null)}>Cancel</Button><Button variant="danger" disabled={why.trim().length < 10} onClick={async () => { try { await apiFetch("/api/settings/suppressions", { method: "DELETE", body: { value: removing, justification: why } }); setRemoving(null); setWhy(""); router.refresh(); } catch (e) { toast.error((e as Error).message); } }}>Remove from list</Button></>}>
@@ -403,7 +404,9 @@ function DataSettings({ d }: { d: D }) {
   return (
     <>
       <Section title="Export" description="Download your workspace leads as CSV (Business, Category, Address, Phone, Website, Email, Website Status/Score, Opportunity, Lead/Response Status, Campaign, Date Added). No secrets are ever exported.">
-        {can(d, "leads.export") ? <a href="/api/leads/export?archived=all" className="inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium hover:bg-subtle"><Download className="h-4 w-4" /> Export all leads (CSV)</a> : <p className="text-sm text-muted">Only admins can export.</p>}
+        {can(d, "leads.export") ? (
+          <a href="/api/leads/export?archived=all" download className="inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium hover:bg-subtle"><Download className="h-4 w-4" /> Export all leads (CSV)</a>
+        ) : <p className="text-sm text-muted">Only admins can export.</p>}
       </Section>
       <Section title="Retention & deletion" description="Delete individual leads, conversations or campaigns from their pages (with confirmation). Bulk deletion requires typing the exact count. The workspace can be deleted under Workspace." footer={can(d, "compliance.manage") && <Button loading={busy} onClick={() => save({ dataRetentionDays: +days })}>Save</Button>}>
         <Field label="Google Places data refresh reminder (days)" htmlFor="ret" hint="Google's terms limit how long some Places content may be cached; 0 = off. Leads older than this show as needing refresh."><Input id="ret" type="number" min={0} value={days} onChange={(e) => setDays(e.target.value as any)} disabled={!can(d, "compliance.manage")} /></Field>
@@ -420,7 +423,7 @@ function Security({ d }: { d: D }) {
     <>
       <Section title="Sessions" description="Devices currently signed in to your account.">
         <ul className="divide-y divide-border rounded-xl border border-border">
-          {d.sessions.map((s: any) => <li key={s.id} className="px-4 py-2.5 text-sm"><div className="truncate">{s.userAgent ?? "Unknown device"}</div><div className="text-xs text-muted">{s.ipAddress ?? "—"} · signed in {formatDateTime(s.createdAt)} · last active {timeAgo(s.lastUsedAt)}</div></li>)}
+          {d.sessions.map((s: any) => <li key={s.id} className="px-4 py-2.5 text-sm"><div className="truncate">{s.userAgent ?? "Unknown device"}</div><div className="text-xs text-muted">{s.ipAddress ?? "—"} · signed in <DateTimeText d={s.createdAt} /> · last active <RelTime d={s.lastUsedAt} /></div></li>)}
         </ul>
         <Button variant="outline" onClick={async () => { const r = await apiFetch<{ revoked: number }>("/api/me/sessions", { method: "DELETE" }); toast.success(`Signed out ${r.revoked} other session(s)`); router.refresh(); }}>Sign out other sessions</Button>
       </Section>

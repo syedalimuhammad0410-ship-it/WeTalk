@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Bell, CheckCheck } from "lucide-react";
 import { apiFetch } from "@/lib/client";
 import { cn, timeAgo } from "@/lib/utils";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 type N = { id: string; title: string; body: string; link: string | null; readAt: string | null; createdAt: string; type: string };
 
@@ -57,7 +58,7 @@ export function NotificationsMenu() {
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium">{n.title}</span>
                     {n.body && <span className="mt-0.5 line-clamp-2 block text-[13px] text-muted">{n.body}</span>}
-                    <span className="mt-1 block text-[11px] text-faint">{timeAgo(n.createdAt)}</span>
+                    <span className="mt-1 block text-[11px] text-faint"><RelTime d={n.createdAt} /></span>
                   </span>
                 </Link>
               </li>

@@ -4,7 +4,8 @@ import { pageContext } from "@/lib/server/page";
 import { getSettings, integrationSummary } from "@/lib/server/workspace";
 import { NOTIFICATION_TYPES } from "@/lib/server/activity";
 import { PageHeader } from "@/components/ui/misc";
-import { SettingsNav, SETTINGS_SECTIONS } from "@/components/settings/settings-nav";
+import { SettingsNav } from "@/components/settings/settings-nav";
+import { SETTINGS_SECTIONS } from "@/lib/settings-sections";
 import { SettingsSection } from "@/components/settings/settings-sections";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
 

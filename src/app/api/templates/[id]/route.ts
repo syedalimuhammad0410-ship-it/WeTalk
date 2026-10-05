@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { api, parseBody } from "@/lib/server/api";
 import { AppError } from "@/lib/server/errors";
 import { unknownVariables } from "@/lib/server/email/templates";
-import { TemplateBody } from "../route";
+import { TemplateBody } from "@/lib/schemas";
 
 export const PATCH = api({ permission: "templates.manage" }, async (req, ctx, p) => {
   const t = await db.emailTemplate.findFirst({ where: { id: p.id, workspaceId: ctx.workspace.id } });

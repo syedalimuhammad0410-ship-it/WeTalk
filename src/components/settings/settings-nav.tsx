@@ -1,22 +1,8 @@
 "use client";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { SETTINGS_SECTIONS } from "@/lib/settings-sections";
 
-export const SETTINGS_SECTIONS = [
-  { id: "account", label: "Account" },
-  { id: "workspace", label: "Workspace" },
-  { id: "users", label: "Users" },
-  { id: "company", label: "Company profile" },
-  { id: "integrations", label: "Business Discovery & AI keys" },
-  { id: "ai", label: "AI" },
-  { id: "email", label: "Email" },
-  { id: "automation", label: "Automation" },
-  { id: "follow-ups", label: "Follow-Ups" },
-  { id: "compliance", label: "Compliance" },
-  { id: "notifications", label: "Notifications" },
-  { id: "data", label: "Data" },
-  { id: "security", label: "Security" },
-] as const;
 
 export function SettingsNav({ active }: { active: string }) {
   return (

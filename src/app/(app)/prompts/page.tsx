@@ -5,6 +5,7 @@ import { pageContext } from "@/lib/server/page";
 import { Card, EmptyState, PageHeader, Badge } from "@/components/ui/misc";
 import { ButtonLink } from "@/components/ui/button";
 import { timeAgo } from "@/lib/utils";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 export const metadata = { title: "Prompts" };
 
@@ -36,7 +37,7 @@ export default async function PromptsPage() {
                 <span>v{p.currentVersion}</span>
                 <span>{(p.versions[0]?.wordCount ?? 0).toLocaleString()} words</span>
                 <span>{p.versions[0]?.generator === "AI" ? "AI-enhanced" : p.versions[0]?.generator === "MANUAL" ? "Edited" : "Rule-based"}</span>
-                <span>{timeAgo(p.updatedAt)}</span>
+                <span><RelTime d={p.updatedAt} /></span>
               </div>
             </Link>
           ))}

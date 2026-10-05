@@ -8,7 +8,7 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "worker": "tsx scripts/worker.ts",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",

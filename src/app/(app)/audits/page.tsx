@@ -8,6 +8,7 @@ import { WebsiteBadge } from "@/components/leads/status-badge";
 import { AuditAllButton } from "@/components/leads/audit-all";
 import { SCORE_CATEGORIES, SCORE_CATEGORY_LABEL } from "@/lib/constants";
 import { timeAgo } from "@/lib/utils";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 export const metadata = { title: "Website Audits" };
 
@@ -46,7 +47,7 @@ export default async function AuditsPage({ searchParams }: { searchParams: Promi
                       <td className="text-right"><ScoreBadge score={a.overallScore} /></td>
                       {SCORE_CATEGORIES.map((c) => <td key={c} className="text-right text-xs"><ScoreBadge score={s[c]} /></td>)}
                       <td className="text-right"><ScoreBadge score={a.business.opportunityScore} /></td>
-                      <td className="whitespace-nowrap text-xs text-muted">{timeAgo(a.createdAt)}</td>
+                      <td className="whitespace-nowrap text-xs text-muted"><RelTime d={a.createdAt} /></td>
                     </tr>
                   );
                 })}

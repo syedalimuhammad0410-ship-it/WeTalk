@@ -70,7 +70,7 @@ export function LeadDetail({ data, initialTab, perms, currentUserId }: { data: L
   return (
     <div className="space-y-5">
       <Link href="/leads" className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg"><ArrowLeft className="h-4 w-4" /> Leads</Link>
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <header className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold tracking-tight">{b.name}</h1>

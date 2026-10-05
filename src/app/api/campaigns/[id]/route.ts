@@ -3,7 +3,7 @@ import { api, parseBody } from "@/lib/server/api";
 import { assertCan } from "@/lib/server/auth";
 import { AppError } from "@/lib/server/errors";
 import { logActivity } from "@/lib/server/activity";
-import { CampaignBody } from "../route";
+import { CampaignBody } from "@/lib/schemas";
 import * as z from "zod";
 
 export const PATCH = api({ permission: "campaigns.manage" }, async (req, ctx, p) => {

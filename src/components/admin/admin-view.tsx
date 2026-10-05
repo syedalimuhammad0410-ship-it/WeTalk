@@ -10,6 +10,7 @@ import { Tabs } from "../ui/tabs";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
 import { formatDateTime, formatNumber, timeAgo } from "@/lib/utils";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 type Tab = "health" | "config" | "jobs" | "logs" | "usage" | "users";
 
@@ -69,12 +70,12 @@ export function AdminView({ data }: { data: any }) {
         <div className="space-y-5">
           {data.failedJobs.length > 0 && (
             <Card><CardHeader title="Failed jobs" />
-              <ul className="divide-y divide-border">{data.failedJobs.map((j: any) => <li key={j.id} className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><div className="text-sm font-medium">{j.label}</div><div className="text-xs text-danger">{j.error}</div><div className="text-xs text-faint">{formatDateTime(j.createdAt)}</div></div><Button size="sm" variant="outline" onClick={async () => { try { await apiFetch(`/api/jobs/${j.id}/retry`, { body: {} }); toast.success("Retry queued"); router.refresh(); } catch (e) { toast.error((e as Error).message); } }}>Retry</Button></li>)}</ul>
+              <ul className="divide-y divide-border">{data.failedJobs.map((j: any) => <li key={j.id} className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><div className="text-sm font-medium">{j.label}</div><div className="text-xs text-danger">{j.error}</div><div className="text-xs text-faint"><DateTimeText d={j.createdAt} /></div></div><Button size="sm" variant="outline" onClick={async () => { try { await apiFetch(`/api/jobs/${j.id}/retry`, { body: {} }); toast.success("Retry queued"); router.refresh(); } catch (e) { toast.error((e as Error).message); } }}>Retry</Button></li>)}</ul>
             </Card>
           )}
           <Card><CardHeader title="Recent jobs" />
             <div className="overflow-x-auto"><table className="table-base"><thead><tr><th>Job</th><th>Status</th><th>Progress</th><th>Started</th><th>Finished</th></tr></thead><tbody>
-              {data.jobs.map((j: any) => <tr key={j.id}><td>{j.label}<div className="text-xs text-muted">{j.type}</div></td><td><Badge tone={{ COMPLETED: "green", FAILED: "red", RUNNING: "blue", QUEUED: "slate", CANCELLED: "zinc" }[j.status as string] as any}>{j.status.toLowerCase()}</Badge></td><td className="tabular-nums">{j.progress}%</td><td className="text-xs">{timeAgo(j.createdAt)}</td><td className="text-xs">{j.finishedAt ? timeAgo(j.finishedAt) : "—"}</td></tr>)}
+              {data.jobs.map((j: any) => <tr key={j.id}><td>{j.label}<div className="text-xs text-muted">{j.type}</div></td><td><Badge tone={{ COMPLETED: "green", FAILED: "red", RUNNING: "blue", QUEUED: "slate", CANCELLED: "zinc" }[j.status as string] as any}>{j.status.toLowerCase()}</Badge></td><td className="tabular-nums">{j.progress}%</td><td className="text-xs"><RelTime d={j.createdAt} /></td><td className="text-xs">{j.finishedAt ? timeAgo(j.finishedAt) : "—"}</td></tr>)}
             </tbody></table></div>
           </Card>
         </div>
@@ -82,7 +83,7 @@ export function AdminView({ data }: { data: any }) {
       {tab === "logs" && (
         <Card><CardHeader title="Activity log" description="Timestamp, user, action and lead for important actions." />
           <div className="overflow-x-auto"><table className="table-base min-w-[640px]"><thead><tr><th>When</th><th>User</th><th>Action</th><th>Lead</th></tr></thead><tbody>
-            {data.logs.map((l: any) => <tr key={l.id}><td className="whitespace-nowrap text-xs">{formatDateTime(l.createdAt)}</td><td className="text-xs">{l.user?.name ?? "System"}</td><td><div className="text-sm">{l.summary}</div><div className="font-mono text-[11px] text-faint">{l.action}</div></td><td className="text-xs">{l.business ? <Link href={`/leads/${l.business.id}`} className="text-accent">{l.business.name}</Link> : "—"}</td></tr>)}
+            {data.logs.map((l: any) => <tr key={l.id}><td className="whitespace-nowrap text-xs"><DateTimeText d={l.createdAt} /></td><td className="text-xs">{l.user?.name ?? "System"}</td><td><div className="text-sm">{l.summary}</div><div className="font-mono text-[11px] text-faint">{l.action}</div></td><td className="text-xs">{l.business ? <Link href={`/leads/${l.business.id}`} className="text-accent">{l.business.name}</Link> : "—"}</td></tr>)}
           </tbody></table></div>
         </Card>
       )}
@@ -113,7 +114,7 @@ export function AdminView({ data }: { data: any }) {
           {data.isSystemAdmin && (
             <Card><CardHeader title="All workspaces (system admin)" />
               <table className="table-base"><thead><tr><th>Workspace</th><th className="text-right">Members</th><th className="text-right">Leads</th><th>Created</th></tr></thead><tbody>
-                {data.allWorkspaces.map((w: any) => <tr key={w.id}><td>{w.name}{w.isDemo && <Badge tone="amber" className="ml-2">DEMO</Badge>}</td><td className="text-right">{w._count.members}</td><td className="text-right">{w._count.businesses}</td><td className="text-xs">{formatDateTime(w.createdAt)}</td></tr>)}
+                {data.allWorkspaces.map((w: any) => <tr key={w.id}><td>{w.name}{w.isDemo && <Badge tone="amber" className="ml-2">DEMO</Badge>}</td><td className="text-right">{w._count.members}</td><td className="text-right">{w._count.businesses}</td><td className="text-xs"><DateTimeText d={w.createdAt} /></td></tr>)}
               </tbody></table>
             </Card>
           )}

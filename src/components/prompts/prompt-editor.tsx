@@ -9,6 +9,7 @@ import { Dialog, ConfirmDialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
 import { cn, formatDateTime } from "@/lib/utils";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 type Version = { id: string; version: number; changeType: string; generator: string; qualityScore: number | null; qualityBreakdown: Record<string, { score: number; notes: string[] }> | null; wordCount: number; note: string | null; createdAt: string; content: string };
 type Props = { prompt: { id: string; title: string; currentVersion: number; business: { id: string; name: string }; versions: Version[] }; features: { key: string; name: string; included: boolean }[]; qualityLabels: Record<string, string>; canEdit: boolean };
@@ -183,7 +184,7 @@ export function PromptEditor({ prompt, features, qualityLabels, canEdit }: Props
                   <li key={v.id} className={cn("rounded-lg border p-3", v.version === latest.version ? "border-accent/40 bg-accent/5" : "border-border")}>
                     <div className="flex items-center justify-between text-sm"><span className="font-medium">Version {v.version}</span>{v.qualityScore != null && <span className="text-xs tabular-nums text-muted">{v.qualityScore}/100</span>}</div>
                     <div className="text-xs text-muted">{CHANGE_LABEL[v.changeType] ?? v.changeType} · {v.generator === "AI" ? "AI" : v.generator === "MANUAL" ? "Manual" : "Rules"} · {v.wordCount.toLocaleString()} words</div>
-                    <div className="text-[11px] text-faint">{formatDateTime(v.createdAt)}</div>
+                    <div className="text-[11px] text-faint"><DateTimeText d={v.createdAt} /></div>
                     <div className="mt-2 flex gap-1.5">
                       <Button size="sm" variant="ghost" onClick={() => setViewing(v)}>View</Button>
                       {canEdit && v.version !== latest.version && <Button size="sm" variant="outline" loading={busy === `r${v.version}`} onClick={() => guard(async () => { setBusy(`r${v.version}`); try { await apiFetch(`/api/prompts/${prompt.id}/restore`, { body: { version: v.version } }); toast.success(`Restored version ${v.version}`); router.refresh(); } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); } })}>Restore</Button>}

@@ -11,6 +11,7 @@ import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
 import { timeAgo } from "@/lib/utils";
 import { kickJobs } from "../shell/job-tray";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 type Job = { id: string; label: string; status: string; progress: number; message: string | null; error: string | null; createdAt: string; result?: any; processed?: number; total?: number };
 
@@ -123,7 +124,7 @@ export function DiscoverForm({ configured, canRun, campaigns, recent, defaultCam
           {recent.map((r) => (
             <li key={r.id} className="px-5 py-3 text-sm">
               <div className="flex items-start justify-between gap-2"><span className="font-medium">{r.label}</span><Badge tone={r.status === "COMPLETED" ? "green" : r.status === "FAILED" ? "red" : r.status === "CANCELLED" ? "zinc" : "blue"}>{r.status.toLowerCase()}</Badge></div>
-              <p className="mt-0.5 text-xs text-muted">{r.status === "FAILED" ? r.error : r.result?.message ?? r.message} · {timeAgo(r.createdAt)}</p>
+              <p className="mt-0.5 text-xs text-muted">{r.status === "FAILED" ? r.error : r.result?.message ?? r.message} · <RelTime d={r.createdAt} /></p>
             </li>
           ))}
         </ul>

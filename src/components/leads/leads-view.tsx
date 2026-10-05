@@ -26,7 +26,7 @@ export type Perms = { edit: boolean; status: boolean; del: boolean; exp: boolean
 
 const FILTER_KEYS = ["q", "status", "city", "category", "businessType", "websiteStatus", "websiteClass", "minWebsiteScore", "maxWebsiteScore", "minOpportunity", "maxOpportunity", "response", "campaignId", "discoveredFrom", "discoveredTo", "contactedFrom", "contactedTo", "assignedToId", "tagIds", "hasEmail", "archived", "sort"];
 
-export function LeadsView({ view, data, columns, options, perms, openAdd, filters }: { view: "table" | "pipeline"; data: { total: number; page: number; pageSize: number; rows: LeadRow[] } | null; columns: Column[] | null; options: Options; perms: Perms; openAdd: boolean; filters: Record<string, unknown> }) {
+export function LeadsView({ view, data, columns, options, perms, openAdd }: { view: "table" | "pipeline"; data: { total: number; page: number; pageSize: number; rows: LeadRow[] } | null; columns: Column[] | null; options: Options; perms: Perms;  openAdd: boolean; filters?: Record<string, unknown> }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -39,7 +39,10 @@ export function LeadsView({ view, data, columns, options, perms, openAdd, filter
 
   const setParams = (patch: Record<string, string | null>, resetPage = true) => {
     const p = new URLSearchParams(sp.toString());
-    for (const [k, v] of Object.entries(patch)) (v === null || v === "" ? p.delete(k) : p.set(k, v));
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null || v === "") p.delete(k);
+      else p.set(k, v);
+    }
     if (resetPage) p.delete("page");
     start(() => router.push(`${pathname}?${p.toString()}`));
   };
@@ -115,7 +118,6 @@ export function LeadsView({ view, data, columns, options, perms, openAdd, filter
       <AddLeadDialog open={adding} onClose={() => setAdding(false)} onCreated={(id) => { setAdding(false); toast.success("Lead added"); router.push(`/leads/${id}`); }} />
       <ImportDialog open={importing} onClose={() => setImporting(false)} onDone={() => { setImporting(false); router.refresh(); }} />
       <span className="sr-only" aria-live="polite">{pending ? "Loading leads…" : ""}</span>
-      {filters && null}
     </div>
   );
 }

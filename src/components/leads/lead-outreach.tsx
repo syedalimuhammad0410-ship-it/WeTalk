@@ -13,6 +13,7 @@ import { formatDateTime } from "@/lib/utils";
 import { INTENT_META } from "@/lib/constants";
 import { SendConfirmDialog, type SendSummary } from "../email/send-confirm";
 import type { LeadData, LeadPerms } from "./types";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 export function EmailsTab({ data, perms }: { data: LeadData; perms: LeadPerms }) {
   const router = useRouter();
@@ -129,7 +130,7 @@ export function EmailsTab({ data, perms }: { data: LeadData; perms: LeadPerms })
                     {m.direction === "OUTBOUND" ? <ArrowUpRight className="mt-0.5 h-4 w-4 text-accent" /> : <ArrowDownLeft className="mt-0.5 h-4 w-4 text-success" />}
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 text-sm font-medium">{m.subject}{m.status === "FAILED" && <Badge tone="red">Failed</Badge>}{m.aiGenerated && <Badge tone="violet">AI</Badge>}{m.intent && <Badge tone={INTENT_META[m.intent]?.tone}>{INTENT_META[m.intent]?.label}</Badge>}</div>
-                      <div className="text-xs text-muted">{m.direction === "OUTBOUND" ? `To ${m.toAddress}` : `From ${m.fromAddress}`} · {formatDateTime(m.sentAt ?? m.receivedAt ?? m.createdAt)}{m.error && <span className="text-danger"> · {m.error}</span>}</div>
+                      <div className="text-xs text-muted">{m.direction === "OUTBOUND" ? `To ${m.toAddress}` : `From ${m.fromAddress}`} · <DateTimeText d={m.sentAt ?? m.receivedAt ?? m.createdAt} />{m.error && <span className="text-danger"> · {m.error}</span>}</div>
                     </div>
                   </Link>
                 </li>

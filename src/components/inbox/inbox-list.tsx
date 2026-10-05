@@ -8,6 +8,7 @@ import { ButtonLink } from "../ui/button";
 import { Tabs } from "../ui/tabs";
 import { cn, timeAgo } from "@/lib/utils";
 import { INBOX_SECTIONS, INTENT_META, LEAD_STATUS_META, type InboxSection, type LeadStatusT } from "@/lib/constants";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 export function SectionTabs({ section, counts }: { section: InboxSection; counts: Record<string, number> }) {
   const router = useRouter();
@@ -36,7 +37,7 @@ export function InboxList({ section, counts, conversations, page }: { section: I
                           <span className={cn("truncate text-sm", c.unread ? "font-semibold" : "font-medium")}>{c.business?.name ?? c.counterpartEmail}</span>
                           <span className="ml-2 hidden text-xs text-muted sm:inline">{c.counterpartEmail}</span>
                         </div>
-                        <span className="shrink-0 text-xs text-faint">{timeAgo(c.lastMessageAt)}</span>
+                        <span className="shrink-0 text-xs text-faint"><RelTime d={c.lastMessageAt} /></span>
                       </div>
                       <div className="truncate text-[13px] text-muted">{c.subject} — {last?.direction === "OUTBOUND" ? "You: " : ""}{(last?.bodyText ?? "").slice(0, 140)}</div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">

@@ -21,5 +21,6 @@ export type LeadData = {
   allFeatures: { key: string; name: string }[];
   emailAccount: { provider: string; emailAddress: string } | null;
   sendBlocker: string | null;
+  listingStale: number | null;
 };
 export type LeadPerms = { edit: boolean; status: boolean; del: boolean; audit: boolean; prompt: boolean; compose: boolean; send: boolean; reverseDnc: boolean };

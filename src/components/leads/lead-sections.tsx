@@ -9,6 +9,7 @@ import { useToast } from "../ui/toast";
 import { cn, formatDateTime, timeAgo } from "@/lib/utils";
 import { SCORE_CATEGORIES, SCORE_CATEGORY_LABEL, WEBSITE_CLASS_META, LEAD_STATUS_META, type LeadStatusT } from "@/lib/constants";
 import type { LeadData, LeadPerms } from "./types";
+import { RelTime, DateTimeText } from "@/components/ui/time";
 
 function Fact({ label, value, source }: { label: string; value?: React.ReactNode; source?: string | null }) {
   const empty = value === null || value === undefined || value === "";
@@ -35,6 +36,7 @@ export function OverviewTab({ data, perms, onTab, onAudit, onPrompt, busy }: { d
   return (
     <div className="grid gap-5 lg:grid-cols-3">
       <div className="space-y-5 lg:col-span-2">
+        {data.listingStale != null && <Alert tone="warning" title={`Google listing data is ${data.listingStale} days old`}>Your workspace refreshes Places data after this period (Settings → Data). Re-run discovery for this area to refresh it.</Alert>}
         {!b.doNotContact && (
           <Alert tone="info" title="Next step" action={next.cta}>{next.text}</Alert>
         )}
@@ -54,7 +56,7 @@ export function OverviewTab({ data, perms, onTab, onAudit, onPrompt, busy }: { d
             <Fact label="Listing status" value={b.operationalStatus?.replace(/_/g, " ").toLowerCase()} source={src} />
             <Fact label="Campaigns" value={b.campaignLeads?.length ? b.campaignLeads.map((c: any) => <Link key={c.campaign.id} href={`/campaigns/${c.campaign.id}`} className="mr-2 text-accent hover:underline">{c.campaign.name}</Link>) : null} />
             <Fact label="Assigned to" value={b.assignedTo?.name} />
-            <Fact label="Discovered" value={formatDateTime(b.discoveredAt)} />
+            <Fact label="Discovered" value=<DateTimeText d={b.discoveredAt} /> />
           </dl>
         </Card>
         {b.contacts?.length > 0 && (
@@ -87,7 +89,7 @@ export function OverviewTab({ data, perms, onTab, onAudit, onPrompt, busy }: { d
               <li key={s.id} className="relative pl-5">
                 <span className="absolute left-0 top-1.5 h-2 w-2 rounded-full bg-accent" aria-hidden />
                 <div className="text-sm"><span className="font-medium">{LEAD_STATUS_META[s.toStatus as LeadStatusT]?.label}</span>{s.fromStatus && <span className="text-muted"> from {LEAD_STATUS_META[s.fromStatus as LeadStatusT]?.label}</span>}</div>
-                <div className="text-xs text-faint" title={formatDateTime(s.createdAt)}>{formatDateTime(s.createdAt)}{s.reason && ` · ${s.reason}`}</div>
+                <div className="text-xs text-faint"><DateTimeText d={s.createdAt} />{s.reason && ` · ${s.reason}`}</div>
               </li>
             ))}
           </ol>
@@ -131,7 +133,7 @@ export function AuditTab({ data, perms, onAudit, busy }: { data: LeadData; perms
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
             <ScoreRing value={a.overallScore} size={96} label="Overall website score" />
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">{meta && <Badge tone={meta.tone}>{meta.label}</Badge>}<span className="text-xs text-muted">Audited {timeAgo(a.completedAt)}{a.durationMs ? ` in ${(a.durationMs / 1000).toFixed(1)}s` : ""}</span></div>
+              <div className="flex flex-wrap items-center gap-2">{meta && <Badge tone={meta.tone}>{meta.label}</Badge>}<span className="text-xs text-muted">Audited <RelTime d={a.completedAt} />{a.durationMs ? ` in ${(a.durationMs / 1000).toFixed(1)}s` : ""}</span></div>
               <p className="mt-2 text-sm text-muted">{a.summary}</p>
               {a.finalUrl && <a href={a.finalUrl} target="_blank" rel="noreferrer noopener" className="mt-1 inline-flex items-center gap-1 text-xs text-accent hover:underline">{a.finalUrl}<ExternalLink className="h-3 w-3" /></a>}
             </div>
@@ -286,7 +288,7 @@ export function PromptTab({ data, perms, onGenerate, busy }: { data: LeadData; p
     <Card>
       <CardHeader
         title={p.title}
-        description={`Version ${p.latest.version} · ${p.latest.wordCount.toLocaleString()} words · ${p.latest.generator === "AI" ? "AI-enhanced" : p.latest.generator === "MANUAL" ? "Manually edited" : "Rule-based"} · updated ${timeAgo(p.updatedAt)}`}
+        description={`Version ${p.latest.version} · ${p.latest.wordCount.toLocaleString()} words · ${p.latest.generator === "AI" ? "AI-enhanced" : p.latest.generator === "MANUAL" ? "Manually edited" : "Rule-based"} · updated $<RelTime d={p.updatedAt} />`}
         action={<>
           <Badge tone={(p.qualityScore ?? 0) >= 85 ? "green" : "amber"}>Quality {p.qualityScore ?? "—"}/100</Badge>
           <Button size="sm" variant="outline" onClick={async () => { const r = await fetch(`/api/prompts/${p.id}/download`); const t = await r.text(); await navigator.clipboard.writeText(t); toast.success("Full prompt copied"); }}><Copy className="h-4 w-4" /> Copy</Button>

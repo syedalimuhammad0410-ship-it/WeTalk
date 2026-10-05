@@ -18,6 +18,7 @@ import { fetchRobots } from "./robots";
 import { buildFindings, detectFeatures, scoreSite, type FeaturePresence, type Finding, type SiteData } from "./score";
 
 const MAX_EXTRA_PAGES = 5;
+const CLASS_LABEL: Record<WebsiteClassT, string> = { NO_WEBSITE: "No", OUTDATED: "Outdated", SINGLE_PAGE: "Single-page", BROKEN: "Broken", INCOMPLETE: "Incomplete", BASIC: "Basic", MODERN: "Modern", STRONG: "Strong", EXCELLENT: "Excellent", MANUAL_REVIEW: "Unreviewed" };
 const MAX_LINK_CHECKS = 12;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -67,7 +68,7 @@ export async function runWebsiteAudit(workspaceId: string, businessId: string, o
       userId: opts.userId,
       businessId,
       action: "audit.completed",
-      summary: outcome.overall != null ? `Website audit completed — ${outcome.overall}/100 (${outcome.classification.replace("_", " ").toLowerCase()})` : `Website check completed — ${outcome.classification.replace("_", " ").toLowerCase()}`,
+      summary: outcome.overall != null ? `Website audit completed — ${outcome.overall}/100 (${outcome.classification.replace(/_/g, " ").toLowerCase()})` : `Website check completed — ${outcome.classification.replace(/_/g, " ").toLowerCase()}`,
       details: { auditId: audit.id, opportunity: outcome.opportunity },
     });
     await db.websiteAudit.update({ where: { id: audit.id }, data: { durationMs: Date.now() - started } });
@@ -360,7 +361,7 @@ async function finalise(
   });
   const summary =
     r.state === "ANALYSED"
-      ? `${r.classification.replace("_", "-").toLowerCase()} website scoring ${r.overall}/100 across ${r.extracted?.pagesAnalysed.length ?? 1} analysed page(s). ${r.classificationReasons?.join("; ") ?? ""}`
+      ? `${CLASS_LABEL[r.classification]} website scoring ${r.overall}/100 across ${r.extracted?.pagesAnalysed.length ?? 1} analysed page(s). ${r.classificationReasons?.length ? `Why: ${r.classificationReasons.join("; ")}.` : ""}`
       : r.findings[0]?.detail ?? "";
   const extracted = r.extracted ?? ({ notes: r.notes } as unknown as ExtractedFacts);
 
