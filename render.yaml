@@ -1,0 +1,26 @@
+# Render Blueprint (free plan): Render dashboard → New → Blueprint → pick this repo.
+# See docs/DEPLOYMENT.md → "Render (free)".
+services:
+  - type: web
+    name: webscout-ai
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/ping
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: JOB_RUNNER
+        value: inline
+      # Generated once by Render (keep it: it encrypts stored credentials).
+      - key: APP_ENCRYPTION_KEY
+        generateValue: true
+      # Entered in the dashboard when the Blueprint is created; never committed.
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

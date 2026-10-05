@@ -2,7 +2,8 @@ import "./guard";
 
 /** Centralised, server-only access to environment configuration. Never import from client code. */
 export const env = {
-  appUrl: () => (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, ""),
+  // RENDER_EXTERNAL_URL is set automatically on Render.
+  appUrl: () => (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:3000").replace(/\/$/, ""),
   encryptionKey: () => process.env.APP_ENCRYPTION_KEY || "",
   anthropicKey: () => process.env.ANTHROPIC_API_KEY || "",
   googleMapsKey: () => process.env.GOOGLE_MAPS_API_KEY || "",
