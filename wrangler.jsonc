@@ -7,6 +7,8 @@
   // global_fetch_strictly_public: fetch() can only reach the public internet (extra SSRF guard for audits).
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  // Cloudflare Hyperdrive → PostgreSQL (create your own: see docs/DEPLOYMENT.md). Caching is disabled on it.
+  "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "ec5edd616e224c298d9940c02621abd4" }],
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "webscout-ai" }],
   // Background jobs (discovery, bulk audits, inbox sync, follow-ups) run once a minute.
   "triggers": { "crons": ["* * * * *"] },

@@ -26,21 +26,30 @@ The app deploys to Cloudflare Workers through the OpenNext adapter
 - `worker.ts`: the Worker entry. It gives every request its own database client, because Workers can't share sockets between requests. The cron trigger calls `/api/internal/cron`, which runs queued background jobs.
 - `open-next.config.ts`: OpenNext build settings.
 
-### 1. Database
+### 1. Database (via Cloudflare Hyperdrive)
 
 Workers need a PostgreSQL database reachable over the internet, for example
-Supabase or Neon. Use the **pooled** connection string (Supabase: "Transaction
-pooler", port 6543). Apply the schema once from your machine:
+Supabase or Neon. Apply the schema once (`DATABASE_URL="postgresql://…" npx
+prisma migrate deploy`), then put **Hyperdrive** in front of it. Workers verify
+TLS certificates strictly and can't reach Supabase's pooler directly, because it
+uses a private certificate authority. Hyperdrive handles the TLS connection and
+pools connections.
 
 ```bash
-DATABASE_URL="postgresql://…" npx prisma migrate deploy
+# Supabase: use the *Session pooler* (port 5432). Keep caching disabled.
+npx wrangler hyperdrive create webscout-db --caching-disabled \
+  --connection-string="postgresql://USER:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres"
 ```
+
+Put the returned id in `wrangler.jsonc` → `hyperdrive[0].id`. Each request then
+connects through `env.HYPERDRIVE`; `DATABASE_URL` is only a fallback when no
+binding exists. `opennextjs-cloudflare deploy` also needs a local stand-in:
+`export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=postgresql://…local…`.
 
 ### 2. Secrets
 
 ```bash
 npx wrangler login                     # or set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
-npx wrangler secret put DATABASE_URL
 npx wrangler secret put APP_ENCRYPTION_KEY # openssl rand -base64 32
 npx wrangler secret put CRON_SECRET        # openssl rand -hex 24
 npx wrangler secret put APP_URL            # https://webscout-ai.<you>.workers.dev or your domain
@@ -62,7 +71,7 @@ that, put local values in `.dev.vars`, which is git-ignored.
 
 ### Notes
 
-- **Plan.** The compressed Worker is about 2.7 MB, just under the free plan's 3 MB limit. Password hashing and page rendering need more CPU time than the free plan's 10 ms per request, so use **Workers Paid** in production.
+- **Plan: Workers Paid is required.** The free plan allows 10 ms of CPU per request. Page rendering and password hashing often go over that, which Cloudflare reports as 503 "Worker exceeded CPU time limit". Workers Paid ($5/month) allows 30 s.
 - **Background jobs.** These are discovery, bulk audits and prompts, inbox sync and follow-ups. They start within about a minute of being queued, on the next cron tick. Single-lead actions (audit, prompt, outreach, send) run immediately in the request.
 - **Website audits.** On Workers, DNS is resolved over HTTPS (1.1.1.1). Private addresses are refused twice: by the app's SSRF guard and by `global_fetch_strictly_public`.
 - **OAuth and webhooks.** The Gmail OAuth redirect URI and the Postmark inbound webhook must use the Worker's public `APP_URL`.

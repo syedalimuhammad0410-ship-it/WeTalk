@@ -18,7 +18,7 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 function currentClient(): PrismaClient {
   // On Workers each request (and each cron invocation) gets its own client; see worker.ts.
   const store = requestScope.getStore();
-  if (store) return (store.client ??= createPrismaClient());
+  if (store) return (store.client ??= createPrismaClient(store.databaseUrl ?? process.env.DATABASE_URL));
   if (isWorkerRuntime) throw new Error("Database used outside a request scope on Cloudflare Workers.");
   return (globalForPrisma.prisma ??= createPrismaClient());
 }
