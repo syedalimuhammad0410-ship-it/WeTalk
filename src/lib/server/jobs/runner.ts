@@ -1,5 +1,5 @@
 import "../guard";
-import type { Prisma } from "@prisma/client";
+import type { Job, Prisma } from "@prisma/client";
 import { db } from "../../db";
 import { describeError } from "../errors";
 import { claimNextJob, makeContext, recoverStaleJobs } from "./queue";
@@ -10,53 +10,65 @@ let wake: (() => void) | null = null;
 const CONCURRENCY = 2;
 let active = 0;
 
+/**
+ * JOB_RUNNER: "inline" (default, in-process loop), "external" (`npm run worker`)
+ * or "cron" (serverless, e.g. Cloudflare Workers: a scheduled trigger calls
+ * /api/internal/cron, which runs runScheduledTick()).
+ */
+export function inlineRunnerEnabled() {
+  const mode = process.env.JOB_RUNNER ?? "inline";
+  return mode === "inline" && process.env.NODE_ENV !== "test" && !process.env.VITEST;
+}
+
 export function kickRunner() {
   // Lazily start the in-process runner (dev starts it here so it always runs current code).
-  if (!started && process.env.JOB_RUNNER !== "external" && process.env.NODE_ENV !== "test" && !process.env.VITEST) startInlineRunner();
+  if (!started && inlineRunnerEnabled()) startInlineRunner();
   wake?.();
+}
+
+async function executeJob(job: Job) {
+  const ctx = makeContext(job);
+  try {
+    const { HANDLERS } = await import("./handlers");
+    const result = await HANDLERS[job.type](job, ctx);
+    const cancelled = await ctx.isCancelled();
+    await db.job.update({
+      where: { id: job.id },
+      data: {
+        status: cancelled ? "CANCELLED" : "COMPLETED",
+        result: JSON.parse(JSON.stringify(result ?? null)) as Prisma.InputJsonValue,
+        progress: cancelled ? undefined : 100,
+        finishedAt: new Date(),
+        message: cancelled ? "Cancelled" : (result as { message?: string } | null)?.message ?? "Completed",
+        lockedAt: null,
+      },
+    });
+  } catch (e) {
+    const retry = job.attempts < job.maxAttempts;
+    await db.job.update({
+      where: { id: job.id },
+      data: retry
+        ? { status: "QUEUED", runAfter: new Date(Date.now() + 60_000 * job.attempts), error: describeError(e).slice(0, 2000), lockedAt: null }
+        : { status: "FAILED", error: describeError(e).slice(0, 2000), finishedAt: new Date(), lockedAt: null, message: describeError(e).slice(0, 300) },
+    });
+  }
 }
 
 async function runOne() {
   const job = await claimNextJob();
   if (!job) return false;
   active++;
-  const ctx = makeContext(job);
-  (async () => {
-    try {
-      const { HANDLERS } = await import("./handlers");
-      const result = await HANDLERS[job.type](job, ctx);
-      const cancelled = await ctx.isCancelled();
-      await db.job.update({
-        where: { id: job.id },
-        data: {
-          status: cancelled ? "CANCELLED" : "COMPLETED",
-          result: JSON.parse(JSON.stringify(result ?? null)) as Prisma.InputJsonValue,
-          progress: cancelled ? undefined : 100,
-          finishedAt: new Date(),
-          message: cancelled ? "Cancelled" : (result as { message?: string } | null)?.message ?? "Completed",
-          lockedAt: null,
-        },
-      });
-    } catch (e) {
-      const retry = job.attempts < job.maxAttempts;
-      await db.job.update({
-        where: { id: job.id },
-        data: retry
-          ? { status: "QUEUED", runAfter: new Date(Date.now() + 60_000 * job.attempts), error: describeError(e).slice(0, 2000), lockedAt: null }
-          : { status: "FAILED", error: describeError(e).slice(0, 2000), finishedAt: new Date(), lockedAt: null, message: describeError(e).slice(0, 300) },
-      });
-    } finally {
-      active--;
-      kickRunner();
-    }
-  })();
+  void executeJob(job).finally(() => {
+    active--;
+    kickRunner();
+  });
   return true;
 }
 
 let lastTick = 0;
 /** Periodic maintenance: enqueue inbox sync + follow-up dispatch, recover stale jobs. */
-async function maintenance() {
-  if (Date.now() - lastTick < 120_000) return;
+async function maintenance(force = false) {
+  if (!force && Date.now() - lastTick < 120_000) return;
   lastTick = Date.now();
   await recoverStaleJobs();
   const workspaces = await db.workspace.findMany({ select: { id: true, emailAccounts: { select: { provider: true } } } });
@@ -103,6 +115,27 @@ export function startInlineRunner() {
   if (started) return;
   started = true;
   void runnerLoop();
+}
+
+/**
+ * One scheduled tick for serverless hosts: maintenance, then claim and run jobs
+ * (up to CONCURRENCY at once) until the queue is empty or the claim window
+ * closes. Jobs already started are awaited before returning.
+ */
+export async function runScheduledTick(opts: { claimWindowMs?: number } = {}) {
+  const claimUntil = Date.now() + (opts.claimWindowMs ?? 50_000);
+  await maintenance(true);
+  let ran = 0;
+  const lane = async () => {
+    while (Date.now() < claimUntil) {
+      const job = await claimNextJob();
+      if (!job) return;
+      ran++;
+      await executeJob(job);
+    }
+  };
+  await Promise.all(Array.from({ length: CONCURRENCY }, lane));
+  return { ran };
 }
 
 /** Test helper: run queued jobs until none remain. */

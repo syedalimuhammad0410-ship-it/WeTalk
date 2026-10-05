@@ -17,6 +17,25 @@ function isPrivateIp(ip: string) {
   return v === "::1" || v === "::" || v.startsWith("fc") || v.startsWith("fd") || v.startsWith("fe80") || v.startsWith("::ffff:127.") || v.startsWith("::ffff:10.") || v.startsWith("::ffff:192.168.");
 }
 
+/** Resolves a hostname; on Cloudflare Workers (no system resolver) uses DNS-over-HTTPS. */
+async function resolveHost(host: string): Promise<{ address: string }[]> {
+  const notFound = () => new AppError("NOT_FOUND", `The domain ${host} does not resolve (DNS lookup failed).`);
+  if (!(typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers")) {
+    return dns.lookup(host, { all: true }).catch(() => {
+      throw notFound();
+    });
+  }
+  const out: { address: string }[] = [];
+  for (const type of ["A", "AAAA"]) {
+    const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${type}`, { headers: { Accept: "application/dns-json" } }).catch(() => null);
+    if (!res?.ok) continue;
+    const json = (await res.json()) as { Answer?: { type: number; data: string }[] };
+    for (const a of json.Answer ?? []) if (a.type === 1 || a.type === 28) out.push({ address: a.data });
+  }
+  if (!out.length) throw notFound();
+  return out;
+}
+
 /** SSRF protection: refuse to fetch internal/private network addresses. */
 export async function assertPublicHost(url: URL) {
   if (process.env.AUDIT_ALLOW_PRIVATE_HOSTS === "true") return;
@@ -24,9 +43,7 @@ export async function assertPublicHost(url: URL) {
   if (url.port && !["80", "443", ""].includes(url.port)) throw new AppError("BLOCKED", "Websites on non-standard ports are not analysed automatically.");
   const host = url.hostname;
   if (host === "localhost" || host.endsWith(".local") || host.endsWith(".internal")) throw new AppError("BLOCKED", "Internal hostnames cannot be analysed.");
-  const addrs = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true }).catch(() => {
-    throw new AppError("NOT_FOUND", `The domain ${host} does not resolve (DNS lookup failed).`);
-  });
+  const addrs = net.isIP(host) ? [{ address: host }] : await resolveHost(host);
   if (addrs.some((a) => isPrivateIp(a.address))) throw new AppError("BLOCKED", "This website resolves to a private network address and was not analysed.");
 }
 

@@ -5,6 +5,8 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
+  // Engine-free client + pg driver adapter: runs on Node and on Cloudflare Workers.
+  engineType      = "client"
 }
 
 datasource db {

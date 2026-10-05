@@ -12,3 +12,9 @@ playwright-report/
 .DS_Store
 /test-results
 /playwright-report
+
+# Cloudflare
+.open-next/
+.wrangler/
+.dev.vars
+.dev.vars.*

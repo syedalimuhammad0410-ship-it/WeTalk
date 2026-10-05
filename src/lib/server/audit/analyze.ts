@@ -1,5 +1,5 @@
 import "../guard";
-import * as cheerio from "cheerio";
+import { load } from "cheerio/slim";
 
 export type FormInfo = { action: string | null; method: string; fields: { name: string; type: string; label: string | null }[]; hasSubmit: boolean; purpose: string };
 export type PageData = {
@@ -90,7 +90,7 @@ const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const IGNORED_EMAIL = /\.(png|jpe?g|gif|webp|svg)$|example\.|sentry|wixpress|godaddy|domain\.com|email\.com|yourdomain|@2x/i;
 
 export function analyzeHtml(html: string, meta: { url: string; status: number; ms: number; bytes: number; headers: Record<string, string> }): PageData {
-  const $ = cheerio.load(html);
+  const $ = load(html);
   const base = new URL(meta.url);
   const host = base.hostname.replace(/^www\./, "");
 

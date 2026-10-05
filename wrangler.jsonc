@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "webscout-ai",
+  // Custom entry: request-scoped DB clients + the background-job cron (worker.ts).
+  "main": "worker.ts",
+  "compatibility_date": "2026-09-01",
+  // global_fetch_strictly_public: fetch() can only reach the public internet (extra SSRF guard for audits).
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "webscout-ai" }],
+  // Background jobs (discovery, bulk audits, inbox sync, follow-ups) run once a minute.
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": { "JOB_RUNNER": "cron" },
+  "observability": { "enabled": true }
+  // Secrets (DATABASE_URL, APP_URL, APP_ENCRYPTION_KEY, CRON_SECRET, provider keys) are set with
+  // `npx wrangler secret put NAME` — never commit them here.
+}

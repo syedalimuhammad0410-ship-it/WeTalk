@@ -42,7 +42,7 @@ Sign up, follow the 10-step setup wizard, and connect integrations (all optional
 
 - [Installation](docs/INSTALLATION.md) · [Environment variables](docs/ENVIRONMENT.md) · [Database](docs/DATABASE.md)
 - [Google Places / PageSpeed setup](docs/API_SETUP.md) · [Email setup](docs/EMAIL_SETUP.md) · [AI setup](docs/AI_SETUP.md)
-- [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Deployment](docs/DEPLOYMENT.md)
+- [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Deployment (any Node host or Cloudflare Workers)](docs/DEPLOYMENT.md)
 - [Testing](docs/TESTING.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ## Tech

@@ -1,6 +1,5 @@
 import "../guard";
 import type { Job, JobType, Prisma } from "@prisma/client";
-import os from "node:os";
 import { db } from "../../db";
 import { AppError } from "../errors";
 
@@ -10,7 +9,7 @@ export type JobContext = {
   isCancelled(): Promise<boolean>;
 };
 
-export const WORKER_ID = `${os.hostname()}:${process.pid}`;
+export const WORKER_ID = `${process.env.HOSTNAME ?? "worker"}:${crypto.randomUUID().slice(0, 8)}`;
 
 export async function enqueueJob(i: { workspaceId: string; type: JobType; label: string; payload?: Prisma.InputJsonValue; createdById?: string | null; runAfter?: Date; maxAttempts?: number }) {
   const job = await db.job.create({

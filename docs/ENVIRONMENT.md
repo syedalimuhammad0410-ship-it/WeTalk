@@ -10,7 +10,8 @@ Secrets live **only** in server environment variables or encrypted in the databa
 | `ANTHROPIC_API_KEY` | no | Server-wide default Claude key. Workspaces can instead save their own (encrypted) key in Settings |
 | `GOOGLE_MAPS_API_KEY` | no | Server-wide default Google Maps Platform key (Places API (New); optionally PageSpeed Insights API) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | no | Enables Google sign-in and Gmail connection (OAuth 2.0) |
-| `JOB_RUNNER` | no | `inline` (default) or `external` (use `npm run worker`) |
+| `JOB_RUNNER` | no | `inline` (default), `external` (use `npm run worker`) or `cron` (serverless/Cloudflare: jobs run when `/api/internal/cron` is called each minute) |
+| `CRON_SECRET` | with `cron` | Bearer secret (24+ chars) that `/api/internal/cron` requires. Without it the endpoint returns 404 |
 | `ENABLE_EMAIL_SANDBOX` | no | `true` (default) allows the clearly-labelled email sandbox. Set `false` in production if you don't want it offered |
 | `SYSTEM_ADMIN_EMAILS` | no | Comma-separated emails that become system admins on sign-up (see all workspaces in Admin) |
 | `SIGNUP_RATE_LIMIT_PER_HOUR` | no | Sign-ups per IP per hour (default 10) |
