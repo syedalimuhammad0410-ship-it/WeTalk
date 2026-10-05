@@ -9,7 +9,7 @@ import { Field, Input, Select, Switch, Textarea } from "../ui/form";
 import { ConfirmDialog, Dialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
 import { apiFetch, setThemeCookie } from "@/lib/client";
-import { formatDateTime, timeAgo } from "@/lib/utils";
+import { timeAgo } from "@/lib/utils";
 import { AI_MODELS, RESPONSE_TONES } from "@/lib/constants";
 import { ROLE_LABEL } from "@/lib/permissions";
 import { IntegrationKeyForm } from "./integration-key-form";

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GripVertical } from "lucide-react";
 import { apiFetch } from "@/lib/client";
-import { cn, timeAgo } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { LEAD_STATUSES, LEAD_STATUS_META, type LeadStatusT } from "@/lib/constants";
 import { Badge, ScoreBadge } from "../ui/misc";
 import { useToast } from "../ui/toast";
@@ -12,7 +12,7 @@ import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Field, Textarea, Select } from "../ui/form";
 import type { Perms } from "./leads-view";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+import { RelTime } from "@/components/ui/time";
 
 export type Column = { status: LeadStatusT; count: number; leads: { id: string; name: string; city: string | null; category: string | null; opportunityScore: number | null; websiteScore: number | null; websiteClass: string | null; statusChangedAt: string; doNotContact: boolean; isDemo: boolean; email: string | null }[] };
 

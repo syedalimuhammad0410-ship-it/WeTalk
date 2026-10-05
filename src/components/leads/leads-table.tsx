@@ -6,11 +6,11 @@ import { ChevronLeft, ChevronRight, Mail, ShieldOff } from "lucide-react";
 import { Card, ScoreBadge, Badge } from "../ui/misc";
 import { Checkbox } from "../ui/form";
 import { Button } from "../ui/button";
-import { formatNumber, timeAgo } from "@/lib/utils";
+import { formatNumber } from "@/lib/utils";
 import { StatusBadge, WebsiteBadge } from "./status-badge";
 import { BulkBar } from "./bulk-bar";
 import type { Options, Perms } from "./leads-view";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+import { RelTime } from "@/components/ui/time";
 
 export type LeadRow = {
   id: string; name: string; category: string | null; businessType: string | null; city: string | null; region: string | null; phone: string | null; email: string | null; website: string | null;

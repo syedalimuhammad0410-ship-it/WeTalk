@@ -6,9 +6,9 @@ import { Inbox, Sparkles, ShieldAlert, Flame } from "lucide-react";
 import { Card, EmptyState, Badge } from "../ui/misc";
 import { ButtonLink } from "../ui/button";
 import { Tabs } from "../ui/tabs";
-import { cn, timeAgo } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { INBOX_SECTIONS, INTENT_META, LEAD_STATUS_META, type InboxSection, type LeadStatusT } from "@/lib/constants";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+import { RelTime } from "@/components/ui/time";
 
 export function SectionTabs({ section, counts }: { section: InboxSection; counts: Record<string, number> }) {
   const router = useRouter();

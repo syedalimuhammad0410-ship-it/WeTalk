@@ -9,7 +9,7 @@ import { Button } from "../ui/button";
 import { Tabs } from "../ui/tabs";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
-import { formatDateTime, formatNumber, timeAgo } from "@/lib/utils";
+import { formatNumber, timeAgo } from "@/lib/utils";
 import { RelTime, DateTimeText } from "@/components/ui/time";
 
 type Tab = "health" | "config" | "jobs" | "logs" | "usage" | "users";

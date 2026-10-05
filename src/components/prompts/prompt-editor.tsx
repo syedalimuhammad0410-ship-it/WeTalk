@@ -8,8 +8,8 @@ import { Badge } from "../ui/misc";
 import { Dialog, ConfirmDialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
-import { cn, formatDateTime } from "@/lib/utils";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+import { cn } from "@/lib/utils";
+import { DateTimeText } from "@/components/ui/time";
 
 type Version = { id: string; version: number; changeType: string; generator: string; qualityScore: number | null; qualityBreakdown: Record<string, { score: number; notes: string[] }> | null; wordCount: number; note: string | null; createdAt: string; content: string };
 type Props = { prompt: { id: string; title: string; currentVersion: number; business: { id: string; name: string }; versions: Version[] }; features: { key: string; name: string; included: boolean }[]; qualityLabels: Record<string, string>; canEdit: boolean };

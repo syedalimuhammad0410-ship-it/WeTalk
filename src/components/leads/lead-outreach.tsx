@@ -9,11 +9,11 @@ import { Button } from "../ui/button";
 import { Field, Input, Select, Textarea } from "../ui/form";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
-import { formatDateTime } from "@/lib/utils";
+
 import { INTENT_META } from "@/lib/constants";
 import { SendConfirmDialog, type SendSummary } from "../email/send-confirm";
 import type { LeadData, LeadPerms } from "./types";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+import { DateTimeText } from "@/components/ui/time";
 
 export function EmailsTab({ data, perms }: { data: LeadData; perms: LeadPerms }) {
   const router = useRouter();

@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, CircleHelp, Copy, ExternalLink, FileCode2,
 import { Card, CardHeader, EmptyState, ScoreBar, ScoreRing, Badge, Alert } from "../ui/misc";
 import { Button, ButtonLink } from "../ui/button";
 import { useToast } from "../ui/toast";
-import { cn, formatDateTime, timeAgo } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { SCORE_CATEGORIES, SCORE_CATEGORY_LABEL, WEBSITE_CLASS_META, LEAD_STATUS_META, type LeadStatusT } from "@/lib/constants";
 import type { LeadData, LeadPerms } from "./types";
 import { RelTime, DateTimeText } from "@/components/ui/time";

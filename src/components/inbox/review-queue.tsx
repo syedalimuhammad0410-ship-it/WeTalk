@@ -9,10 +9,10 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/form";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
-import { timeAgo } from "@/lib/utils";
+
 import { INTENT_META } from "@/lib/constants";
 import { SectionTabs } from "./inbox-list";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+import { RelTime } from "@/components/ui/time";
 
 export function ReviewQueue({ items, counts, perms }: { items: any[]; counts: Record<string, number>; perms: { approve: boolean; send: boolean } }) {
   return (

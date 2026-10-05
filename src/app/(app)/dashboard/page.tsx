@@ -6,10 +6,10 @@ import { dashboardStats } from "@/lib/server/queries";
 import { integrationSummary } from "@/lib/server/workspace";
 import { Card, CardHeader, EmptyState, Stat, Badge, Alert } from "@/components/ui/misc";
 import { ButtonLink } from "@/components/ui/button";
-import { formatNumber, greeting, timeAgo } from "@/lib/utils";
+import { formatNumber, greeting } from "@/lib/utils";
 import { LEAD_STATUSES, LEAD_STATUS_META } from "@/lib/constants";
 import { Greeting } from "@/components/dashboard/greeting";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+import { RelTime } from "@/components/ui/time";
 
 export const metadata = { title: "Dashboard" };
 

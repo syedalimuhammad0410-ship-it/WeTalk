@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { pageContext } from "@/lib/server/page";
 import { Card, EmptyState, PageHeader, Badge } from "@/components/ui/misc";
 import { ButtonLink } from "@/components/ui/button";
-import { timeAgo } from "@/lib/utils";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+
+import { RelTime } from "@/components/ui/time";
 
 export const metadata = { title: "Prompts" };
 

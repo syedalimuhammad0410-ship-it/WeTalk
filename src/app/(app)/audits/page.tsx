@@ -7,8 +7,8 @@ import { ButtonLink } from "@/components/ui/button";
 import { WebsiteBadge } from "@/components/leads/status-badge";
 import { AuditAllButton } from "@/components/leads/audit-all";
 import { SCORE_CATEGORIES, SCORE_CATEGORY_LABEL } from "@/lib/constants";
-import { timeAgo } from "@/lib/utils";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+
+import { RelTime } from "@/components/ui/time";
 
 export const metadata = { title: "Website Audits" };
 

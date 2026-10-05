@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Bell, CheckCheck } from "lucide-react";
 import { apiFetch } from "@/lib/client";
-import { cn, timeAgo } from "@/lib/utils";
-import { RelTime, DateTimeText } from "@/components/ui/time";
+import { cn } from "@/lib/utils";
+import { RelTime } from "@/components/ui/time";
 
 type N = { id: string; title: string; body: string; link: string | null; readAt: string | null; createdAt: string; type: string };
 
