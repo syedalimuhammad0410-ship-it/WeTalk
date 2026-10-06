@@ -4,14 +4,14 @@
 
 `render.yaml` is a ready-made Render Blueprint for the free plan:
 
-1. In Render, go to **New → Blueprint**, connect this GitHub repository and choose the branch.
+1. Open the one-click link [Deploy to Render](https://render.com/deploy?repo=https://github.com/syedalimuhammad0410-ship-it/WeTalk/tree/ccr-61e46531-ctzwtv). Or go to **New → Blueprint** in Render, connect this repository and choose the branch.
 2. Fill in the prompted values:
    - `DATABASE_URL`: Supabase *Transaction pooler* URI ending in `?uselibpqcompat=true&sslmode=require`.
    - `GOOGLE_MAPS_API_KEY`: optional.
    - `ANTHROPIC_API_KEY`: optional.
    
    `APP_ENCRYPTION_KEY` is generated for you, and `APP_URL` defaults to the Render URL.
-3. Free services sleep after 15 idle minutes. To keep the site awake and background jobs running, create a free job at cron-job.org (or similar) that sends `GET https://<your-app>.onrender.com/api/ping` every 10 minutes.
+3. Free services sleep after 15 idle minutes. On Render the app keeps itself awake by calling its own `/api/ping` every 10 minutes (from `RENDER_EXTERNAL_URL`), which also keeps background jobs running. One always-on free service fits within Render's 750 free hours per month. Set `KEEP_AWAKE=false` to turn this off.
 
 Apply the database schema once (`npx prisma migrate deploy`) before the first start.
 
