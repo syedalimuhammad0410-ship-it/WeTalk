@@ -1,6 +1,7 @@
 // Request/response payloads exchanged between the investigation runner (client)
 // and research workers (server). Everything returned is mergeable into an Investigation.
 import type {
+  Dossier,
   Candidate,
   Contradiction,
   Entity,
@@ -17,6 +18,7 @@ export interface ResearchDelta {
   sources: Source[];
   entities?: Entity[];
   candidates?: Candidate[];
+  dossiers?: Dossier[];
   locations?: GeoLocation[];
   timeline?: TimelineEvent[];
   contradictions?: Contradiction[];

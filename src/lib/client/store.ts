@@ -9,7 +9,7 @@ import { assess } from "@/lib/engine/reasoning";
 import { buildBoard } from "@/lib/engine/graph";
 import { nowIso, uid, yearOf } from "@/lib/util";
 
-export type Tab = "result" | "image" | "board" | "map" | "candidates" | "compare" | "sources" | "timeline" | "queries" | "entities" | "notes";
+export type Tab = "result" | "subjects" | "image" | "board" | "map" | "candidates" | "compare" | "sources" | "timeline" | "queries" | "entities" | "notes";
 
 export interface LogLine {
   at: string;
@@ -244,7 +244,7 @@ export const ws = {
   },
   resetInvestigation() {
     abort?.abort();
-    ws.update((inv) => ({ ...inv, status: "draft", clues: [], entities: [], candidates: [], locations: [], evidence: [], sources: [], queries: [], results: [], timeline: [], contradictions: [], chat: [], notes: [], boards: [], conclusion: undefined, focus: undefined, regions: [] }));
+    ws.update((inv) => ({ ...inv, status: "draft", clues: [], entities: [], candidates: [], locations: [], evidence: [], sources: [], queries: [], results: [], timeline: [], contradictions: [], chat: [], notes: [], boards: [], dossiers: [], conclusion: undefined, focus: undefined, regions: [] }));
     set({ steps: [], logs: [], liveClues: [], compares: [], locates: [], phase: null, tab: "image", confirmReset: false, cinematic: { ...state.cinematic, open: false } });
     ws.log("Investigation reset. Images were kept; saved investigations were not deleted.");
   },

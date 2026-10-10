@@ -178,7 +178,7 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
   try {
     if (!inv.images.length) throw new Error("Add at least one image to investigate.");
     // reset derived state (keeps images, notes, chat, user boards, regions)
-    inv = { ...inv, clues: inv.clues.filter((c) => c.origin === "user"), entities: [], candidates: [], locations: inv.locations.filter((l) => l.userSelected), evidence: inv.evidence.filter((e) => e.kind === "user"), timeline: inv.timeline.filter((t) => t.userProvided), contradictions: [], conclusion: undefined };
+    inv = { ...inv, dossiers: [], clues: inv.clues.filter((c) => c.origin === "user"), entities: [], candidates: [], locations: inv.locations.filter((l) => l.userSelected), evidence: inv.evidence.filter((e) => e.kind === "user"), timeline: inv.timeline.filter((t) => t.userProvided), contradictions: [], conclusion: undefined };
     const ignored = new Set(start.clues.filter((c) => c.ignored).map((c) => c.value.toLowerCase()));
 
     // ---------------- PHASE 1: ingest ----------------
@@ -467,8 +467,31 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
       const strong = usable.filter((c) => c.type === "text" && c.weight >= 0.6).sort((a, b) => b.weight - a.weight)[0];
       if (strong) branchQueries.push({ kind: "web", branch: "web", query: `"${strong.value}" ${[...sceneHints][0] || ""}`.trim() });
     }
-    await Promise.all(
-      branchQueries.map((bq) =>
+    // subject dossiers: who/what is in the image (an airline, a company, a meme template…), researched in depth
+    const subjects: { name: string; kind: string; wikidataId?: string; why: string }[] = [];
+    const addSubject = (x: { name: string; kind: string; wikidataId?: string; why: string }) => {
+      if (x.name.trim().length < 2 || subjects.some((y) => compactName(y.name) === compactName(x.name) || (x.wikidataId && y.wikidataId === x.wikidataId))) return;
+      subjects.push(x);
+    };
+    for (const a of aiResults.values()) for (const sub of a.subjects || []) addSubject({ name: sub.name, kind: sub.kind, why: sub.why ? `AI: ${sub.why}` : "Main subject identified by AI vision" });
+    const ENT_KIND: Partial<Record<string, string>> = { organization: "organization", sports_team: "sports team", brand: "brand", product: "product", venue: "landmark", building: "landmark", event: "event" };
+    for (const e of inv.entities.filter((x) => x.wikidataId && ENT_KIND[x.type] && x.matchQuality !== "weak").slice(0, 3))
+      addSubject({ name: e.name, kind: ENT_KIND[e.type]!, wikidataId: e.wikidataId, why: e.detectedBecause[0] || "Resolved from text or logos in the image" });
+    const dossierJobs = subjects.slice(0, opts.mode === "quick" ? 2 : 5).map((sub) =>
+      step("dossier", `Researching ${sub.kind === "meme" ? "meme" : sub.kind}: ${sub.name}`, async (s) => {
+        const body = { name: sub.name, kind: sub.kind, wikidataId: sub.wikidataId, foundBecause: sub.why };
+        type DR = ResearchDelta & { dossier: import("@/lib/types").Dossier | null };
+        // one retry: very large public records occasionally time out on the first attempt
+        const d = await api.post<DR>("/api/dossier", body, opts.signal).catch(() => api.post<DR>("/api/dossier", body, opts.signal));
+        apply(d);
+        const fin = d.dossier?.facts.filter((f) => f.group === "financials").map((f) => `${f.label} ${f.value}`) || [];
+        s.detail = d.dossier ? `${d.dossier.facts.length} facts${fin.length ? ` · ${fin.slice(0, 2).join(" · ")}` : ""} · ${d.dossier.newsIds.length} articles` : "No public profile found";
+        if (!d.dossier) s.status = "skipped";
+      }),
+    );
+    await Promise.all([
+      ...dossierJobs,
+      ...branchQueries.map((bq) =>
         overBudget()
           ? Promise.resolve()
           : step(bq.branch, `${bq.kind === "history" ? "Historical records" : bq.kind === "news" ? "News" : "Web"} search: “${bq.query}”`, async (s) => {
@@ -477,7 +500,7 @@ export async function runInvestigation(start: Investigation, opts: RunOptions): 
               s.detail = d.queries.map((q) => `${q.provider}: ${q.status}${q.resultCount ? ` (${q.resultCount})` : ""}`).join(" · ");
             }),
       ),
-    );
+    ]);
 
     // ---------------- PHASE 5: candidates ----------------
     emit({ type: "phase", phase: "candidates" });

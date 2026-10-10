@@ -85,6 +85,7 @@ const VisionSchema = z.object({
   suggestedQueries: z.array(z.string()),
   peopleNote: z.string().nullable(),
   flags: z.array(z.object({ country: z.string(), confidence: z.enum(["high", "medium", "low"]) })),
+  subjects: z.array(z.object({ name: z.string(), kind: z.string(), why: z.string() })),
 });
 
 const CompareSchema = z.object({
@@ -193,7 +194,7 @@ export function anthropicProvider(ctx: ProviderContext): AIProvider {
         {
           type: "text",
           text: `Investigation mode: ${opts.mode}.${opts.focus ? ` Focus only on: ${opts.focus}.` : ""}${opts.instructions ? ` User instructions: ${opts.instructions}` : ""}
-Extract EVERY useful clue for identifying where/what this is: all legible text (exact transcription, including small, rotated, partial and background text), every logo/brand/sponsor (jerseys, boards, signage, vehicles), every flag (name the country), architecture, environment, sport venue features, document fields, named entities (organizations, teams, venues, places, publications, events, dates), and 4-10 specific search queries a researcher should run. Keep entries short.`,
+Extract EVERY useful clue for identifying where/what this is: all legible text (exact transcription, including small, rotated, partial and background text), every logo/brand/sponsor (jerseys, boards, signage, vehicles), every flag (name the country), architecture, environment, sport venue features, document fields, named entities (organizations, teams, venues, places, publications, events, dates), and 4-10 specific search queries a researcher should run. Keep entries short. Also list "subjects": the 1-5 main things in the image a researcher would want a full profile of — e.g. the airline whose aircraft or livery is shown, the company/brand whose logo or product dominates, a sports team, a famous landmark, a specific vehicle or product model, or the meme template's name if it is a meme (use its common name, e.g. "Distracted Boyfriend"). Use the official name; kind is one of company, airline, brand, organization, sports team, landmark, place, product, vehicle, meme, artwork, event, other; why says what in the image shows it. Never list private individuals.`,
         },
       ]);
       return { model, ...r, document: r.document ? { ...r.document, publication: r.document.publication ?? undefined, date: r.document.date ?? undefined, headline: r.document.headline ?? undefined } : null, peopleNote: r.peopleNote ?? undefined };
@@ -329,8 +330,9 @@ export function geminiProvider(ctx: ProviderContext): AIProvider {
     suggestedQueries: z.array(z.string()).default([]),
     peopleNote: z.string().nullable().default(null),
     flags: z.array(z.object({ country: z.string(), confidence: z.enum(["high", "medium", "low"]).catch("medium") })).default([]),
+    subjects: z.array(z.object({ name: z.string().min(1), kind: z.string().catch("other"), why: z.string().catch("") })).catch([]).default([]),
   });
-  const VISION_SHAPE = `{"summary":string,"sceneType":string,"text":[{"text":string,"where":string,"confidence":"high"|"medium"|"low"}],"logos":[{"name":string,"category":string,"confidence":"high"|"medium"|"low","alternatives":[string]}],"flags":[{"country":string,"confidence":"high"|"medium"|"low"}],"architecture":[string],"environment":[string],"sport":{"sport":string,"features":[string]}|null,"document":{"publication":string|null,"date":string|null,"headline":string|null,"names":[string]}|null,"entities":[{"name":string,"type":string}],"suggestedQueries":[string],"peopleNote":string|null}`;
+  const VISION_SHAPE = `{"summary":string,"sceneType":string,"text":[{"text":string,"where":string,"confidence":"high"|"medium"|"low"}],"logos":[{"name":string,"category":string,"confidence":"high"|"medium"|"low","alternatives":[string]}],"flags":[{"country":string,"confidence":"high"|"medium"|"low"}],"architecture":[string],"environment":[string],"sport":{"sport":string,"features":[string]}|null,"document":{"publication":string|null,"date":string|null,"headline":string|null,"names":[string]}|null,"entities":[{"name":string,"type":string}],"suggestedQueries":[string],"peopleNote":string|null,"subjects":[{"name":string,"kind":"company"|"airline"|"brand"|"organization"|"sports team"|"landmark"|"place"|"product"|"vehicle"|"meme"|"artwork"|"event"|"other","why":string}]}`;
   return {
     id: "gemini",
     get model() {
@@ -342,7 +344,7 @@ export function geminiProvider(ctx: ProviderContext): AIProvider {
         img(i),
         {
           text: `Investigation mode: ${opts.mode}.${opts.focus ? ` Focus only on: ${opts.focus}.` : ""}${opts.instructions ? ` User instructions: ${opts.instructions}` : ""}
-Extract EVERY useful clue for identifying where/what this is: all legible text (exact transcription, including small, rotated, partial and background text), every logo/brand/sponsor (jerseys, boards, signage, vehicles), every flag (name the country), architecture, environment, sport venue features, document fields, named entities (organizations, teams, venues, places, publications, events, dates), and 4-10 specific search queries a researcher should run. Never identify private individuals.`,
+Extract EVERY useful clue for identifying where/what this is: all legible text (exact transcription, including small, rotated, partial and background text), every logo/brand/sponsor (jerseys, boards, signage, vehicles), every flag (name the country), architecture, environment, sport venue features, document fields, named entities (organizations, teams, venues, places, publications, events, dates), and 4-10 specific search queries a researcher should run. Never identify private individuals. Also list "subjects": the 1-5 main things in the image a researcher would want a full profile of — e.g. the airline whose aircraft or livery is shown, the company/brand whose logo or product dominates, a sports team, a famous landmark, a specific vehicle or product model, or the meme template's name if it is a meme (use its common name, e.g. "Distracted Boyfriend"). Use the official name; kind is one of company, airline, brand, organization, sports team, landmark, place, product, vehicle, meme, artwork, event, other; why says what in the image shows it. Never list private individuals.`,
         },
       ], VISION_SHAPE);
       return { model: `gemini:${lastModel}`, ...r, document: r.document ? { ...r.document, publication: r.document.publication ?? undefined, date: r.document.date ?? undefined, headline: r.document.headline ?? undefined } : null, peopleNote: r.peopleNote ?? undefined };

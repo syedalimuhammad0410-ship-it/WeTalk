@@ -64,6 +64,13 @@ export function mergeDelta(inv: Investigation, d: Partial<ResearchDelta>): Inves
     }
     next.candidates = cands;
   }
+  if (d.dossiers?.length) {
+    const prev = next.dossiers || [];
+    const fresh = d.dossiers
+      .map((x) => ({ ...x, sourceIds: fix(x.sourceIds), newsIds: fix(x.newsIds), facts: x.facts.map((f) => ({ ...f, sourceId: remap.get(f.sourceId) || f.sourceId })) }))
+      .filter((x) => !prev.some((p) => (x.wikidataId && p.wikidataId === x.wikidataId) || compact(p.name) === compact(x.name)));
+    next.dossiers = [...prev, ...fresh];
+  }
   if (d.timeline?.length) next.timeline = uniqBy([...next.timeline, ...d.timeline.map((t) => ({ ...t, candidateId: t.candidateId ? candRemap.get(t.candidateId) || t.candidateId : undefined, sourceIds: fix(t.sourceIds) }))], (t) => `${t.date}|${compact(t.label)}`);
   if (d.contradictions?.length)
     next.contradictions = uniqBy(

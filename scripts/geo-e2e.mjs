@@ -50,6 +50,15 @@ await page.getByRole("tab", { name: /^Result/ }).click();
 await page.waitForTimeout(1200);
 log("HEADLINE:", await page.locator("h2").first().innerText().catch(() => "?"));
 await page.screenshot({ path: `${OUT}/geo-result.png` });
+const subj = page.getByRole("tab", { name: /^Subjects/ });
+if (await subj.count()) {
+  await subj.click();
+  await page.waitForTimeout(2500);
+  await page.screenshot({ path: `${OUT}/subjects-tab.png` });
+}
+await page.getByRole("tab", { name: /^Result/ }).click();
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${OUT}/result-tab.png` });
 await page.getByRole("tab", { name: /^Evidence board/ }).click();
 await page.waitForTimeout(3500);
 await page.screenshot({ path: `${OUT}/geo-board.png` });
@@ -69,7 +78,8 @@ if (id) {
   const inv = await page.evaluate(async (i) => (await (await fetch(`/api/investigations/${i}`)).json()), id);
   const v = inv.investigation || inv;
   const run = v.runs?.[v.runs.length - 1];
-  for (const st of run?.steps || []) if (/geoloc|combination|visual|matching/.test(st.branch)) log("STEP", st.branch, st.status, (st.label || "").slice(0, 70), "|", (st.detail || "").slice(0, 90));
+  for (const st of run?.steps || []) if (/geoloc|combination|dossier/.test(st.branch)) log("STEP", st.branch, st.status, (st.label || "").slice(0, 70), "|", (st.detail || "").slice(0, 90));
+  for (const d of v.dossiers || []) log("DOSSIER", d.kind, "|", d.name, "|", d.facts.filter((f) => f.group !== "links").slice(0, 9).map((f) => `${f.label}: ${f.value}${f.asOf ? ` (${f.asOf})` : ""}`).join(" ; "), "| news", d.newsIds.length);
   log("IMAGES", (v.candidates || []).slice(0, 3).map((c) => `${c.name}: ${c.images.length} refs (${c.images.filter((i) => /Street-level/.test(i.title)).length} street-level), compared ${c.images.filter((i) => i.comparison).length}`).join(" | "));
 }
 console.log("ERRORS:", errors.filter((e) => !/favicon|404 \(Not Found\)/.test(e)).slice(0, 20));

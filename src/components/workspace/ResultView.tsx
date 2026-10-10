@@ -32,6 +32,7 @@ export function ResultView() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-4 md:p-6">
+      <SubjectsStrip />
       <div className="overflow-hidden rounded-card border border-line-strong bg-gradient-to-br from-panel-2 to-panel">
         <div className="grid gap-0 lg:grid-cols-[1.25fr_1fr]">
           <div className="p-6 md:p-8">
@@ -208,6 +209,48 @@ export function ResultView() {
           </ul>
         </Panel>
       )}
+    </div>
+  );
+}
+
+/** Compact cards for the subjects researched (companies, airlines, memes…), linking to the Subjects tab. */
+function SubjectsStrip() {
+  const inv = useWorkspace((s) => s.inv)!;
+  const list = inv.dossiers || [];
+  if (!list.length) return null;
+  const pick = (d: NonNullable<typeof inv.dossiers>[number], labels: string[]) => labels.map((l) => d.facts.find((f) => f.label === l)).filter(Boolean).slice(0, 3);
+  return (
+    <div>
+      <div className="label-mono mb-2 text-signal">What's in this image</div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {list.slice(0, 6).map((d) => (
+          <button key={d.id} onClick={() => ws.set({ tab: "subjects" })} className="rounded-card border border-line-strong bg-panel p-3 text-left transition-colors hover:border-cyan/50">
+            <div className="flex items-start gap-3">
+              {d.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={proxied(d.image)} alt="" className="size-11 shrink-0 rounded-[3px] bg-white/90 object-contain p-1" loading="lazy" />
+              )}
+              <div className="min-w-0">
+                <div className="label-mono !text-[9px] text-cyan">{d.kind}</div>
+                <div className="truncate text-[14px] font-semibold">{d.name}</div>
+                <div className="line-clamp-1 text-[11.5px] text-mute">{d.description}</div>
+              </div>
+            </div>
+            <div className="mt-2 space-y-0.5 text-[11.5px]">
+              {pick(d, ["Revenue", "Net profit", "Headquarters", "CEO", "Founded", "IATA code", "Created by", "First published", "Located in"]).map((f) => (
+                <div key={f!.label} className="flex justify-between gap-2">
+                  <span className="text-mute">{f!.label}</span>
+                  <span className="truncate text-right">
+                    {f!.value}
+                    {f!.asOf ? <span className="text-mute"> ({f!.asOf})</span> : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 text-[11px] text-cyan">Full profile →</div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

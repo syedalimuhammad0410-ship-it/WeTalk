@@ -34,6 +34,17 @@ export function toMarkdown(inv: Investigation): string {
   lines.push("## Images", ...inv.images.map((i) => `- ${i.name} (${i.width}×${i.height}, sha256 ${i.sha256.slice(0, 16)}…)${i.demoSource ? ` — ${i.demoSource.title}, ${i.demoSource.license}, ${i.demoSource.url}` : ""}`), "");
   lines.push("## Detected clues", ...inv.clues.filter((x) => !x.ignored).slice(0, 60).map((x) => `- **${x.type}** “${x.value}” — ${x.engine}`), "");
   lines.push("## Entities", ...inv.entities.map((e) => `- **${e.name}** (${e.type}) — ${e.detectedBecause.join("; ")} ${src(e.sourceIds)}`), "");
+  if (inv.dossiers?.length) {
+    lines.push("## Subjects in the image");
+    for (const d of inv.dossiers) {
+      lines.push(`### ${d.name} (${d.kind})`, d.description ? `_${d.description}_` : "", `Why researched: ${d.foundBecause}`, "");
+      if (d.summary) lines.push(d.summary, "");
+      for (const f of d.facts.filter((x) => x.group !== "links")) lines.push(`- **${f.label}:** ${f.value}${f.asOf ? ` (as of ${f.asOf})` : ""} ${src([f.sourceId])}`);
+      const news = d.newsIds.map((id) => inv.sources.find((x) => x.id === id)).filter(Boolean).slice(0, 5);
+      if (news.length) lines.push("", "Recent coverage:", ...news.map((n) => `- ${n!.title} — ${n!.publisher} ${src([n!.id])}`));
+      lines.push("");
+    }
+  }
   lines.push("## Candidates");
   inv.candidates.forEach((cd, i) => {
     lines.push("", `### #${i + 1} ${cd.name}${cd.city ? `, ${cd.city}` : ""} — ${cd.status}, ${cd.confidence} confidence`);

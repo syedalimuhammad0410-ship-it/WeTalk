@@ -469,6 +469,8 @@ export interface Investigation {
   boards: Board[];
   runs: InvestigationRun[];
   conclusion?: Conclusion;
+  /** researched profiles of the subjects in the image (companies, airlines, brands, landmarks, memes, …) */
+  dossiers?: Dossier[];
 }
 
 export interface InvestigationSummary {
@@ -502,5 +504,36 @@ export interface AiVisionResult {
   entities: { name: string; type: string }[];
   suggestedQueries: string[];
   flags?: { country: string; confidence: "high" | "medium" | "low" }[];
+  /** the main things in the image worth researching (company, airline, landmark, meme template, …) */
+  subjects?: { name: string; kind: string; why: string }[];
   peopleNote?: string;
+}
+
+export type DossierKind = "company" | "airline" | "brand" | "organization" | "sports team" | "landmark" | "place" | "product" | "vehicle" | "meme" | "artwork" | "event" | "other";
+
+export interface DossierFact {
+  label: string;
+  value: string;
+  /** "as of" date for figures that change (revenue, employees, …) */
+  asOf?: string;
+  group: "overview" | "financials" | "people" | "operations" | "location" | "codes" | "links";
+  sourceId: string;
+}
+
+export interface Dossier {
+  id: string;
+  name: string;
+  kind: DossierKind;
+  wikidataId?: string;
+  description?: string;
+  summary?: string;
+  image?: string;
+  website?: string;
+  facts: DossierFact[];
+  /** news / web articles about the subject (source ids) */
+  newsIds: string[];
+  sourceIds: string[];
+  /** why TRACE researched it (e.g. "logo seen on the tail fin") */
+  foundBecause: string;
+  createdAt: string;
 }

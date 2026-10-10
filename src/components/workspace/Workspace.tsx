@@ -23,9 +23,11 @@ import { Cinematic } from "./Cinematic";
 const MapView = dynamic(() => import("./MapView").then((m) => m.MapView), { ssr: false, loading: () => <div className="grid h-full place-items-center"><Spinner /></div> });
 const EvidenceBoard = dynamic(() => import("./EvidenceBoard").then((m) => m.EvidenceBoard), { ssr: false, loading: () => <div className="grid h-full place-items-center"><Spinner /></div> });
 const CompareView = dynamic(() => import("./CompareView").then((m) => m.CompareView), { ssr: false });
+const DossiersView = dynamic(() => import("./DossiersView").then((m) => m.DossiersView), { ssr: false });
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "result", label: "Result" },
+  { id: "subjects", label: "Subjects" },
   { id: "image", label: "Images & clues" },
   { id: "board", label: "Evidence board" },
   { id: "map", label: "Map" },
@@ -181,6 +183,7 @@ function WorkspaceInner({ id }: { id: string }) {
             {tab === "map" && <MapView />}
             {tab === "candidates" && <CandidatesView />}
             {tab === "compare" && <CompareView />}
+            {tab === "subjects" && <DossiersView />}
             {tab === "sources" && <SourcesView />}
             {tab === "timeline" && <TimelineView />}
             {tab === "queries" && <QueriesView />}

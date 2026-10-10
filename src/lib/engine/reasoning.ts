@@ -436,6 +436,23 @@ export function buildConclusion(inv: Investigation, lead?: Candidate): Conclusio
       nextSteps: ["Select a region around any sign or text and run “Investigate region”.", "Add a note with anything you know (city, event, date).", "Configure an AI vision provider (ANTHROPIC_API_KEY) for full scene reading."],
     };
   }
+  // no place to pin down, but the image's subject was identified (a meme, a product, a company's ad…)
+  const subject = (inv.dossiers || [])[0];
+  if (!lead && subject) {
+    const others = (inv.dossiers || []).slice(1, 4).map((x) => x.name);
+    const fin = subject.facts.filter((f) => ["Revenue", "Net profit", "Headquarters", "Founded", "Created by", "First published"].includes(f.label)).slice(0, 3);
+    return {
+      candidateId: null,
+      headline: `Image shows: ${subject.name}${subject.kind !== "other" ? ` (${subject.kind})` : ""}`,
+      confidence: "moderate",
+      reasons: [`${subject.foundBecause}.`, ...(subject.wikidataId ? [`Matched to the public record ${subject.wikidataId} (Wikidata).`] : [])],
+      uncertainties: ["No specific location could be identified; this result describes what the image shows rather than where it was taken."],
+      explanation: `${subject.name}${subject.description ? ` — ${subject.description}` : ""}. ${fin.map((f) => `${f.label}: ${f.value}${f.asOf ? ` (${f.asOf})` : ""}`).join("; ")}${fin.length ? ". " : ""}${others.length ? `Also identified: ${others.join(", ")}. ` : ""}See the Subjects tab for the full profile with sources.`,
+      generatedBy: "rules",
+      createdAt: created,
+      nextSteps: ["Open the Subjects tab for the full sourced profile.", "Ask TRACE AI a question about it (e.g. “what is their latest revenue?”)."],
+    };
+  }
   if (!lead) {
     return {
       candidateId: null,

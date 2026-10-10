@@ -42,6 +42,7 @@ export const InvestigationSchema = z.object({
   notes: arr(500),
   boards: arr(12),
   runs: arr(200),
+  dossiers: arr(30).optional(),
   conclusion: z.record(z.string(), z.unknown()).optional(),
 });
 

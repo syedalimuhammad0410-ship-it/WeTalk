@@ -36,6 +36,16 @@ export function digest(inv: Investigation) {
     timeline: inv.timeline.slice(0, 30).map((t) => `${t.date}: ${t.label}`),
     notes: inv.notes.map((n) => n.text),
     conclusion: inv.conclusion,
+    // researched profiles of the image's subjects (facts cite their source ids)
+    subjects: (inv.dossiers || []).map((d) => ({
+      name: d.name,
+      kind: d.kind,
+      description: d.description,
+      summary: truncate(d.summary || "", 400),
+      facts: d.facts.filter((f) => f.group !== "links").map((f) => `${f.label}: ${f.value}${f.asOf ? ` (as of ${f.asOf})` : ""} [source:${f.sourceId}]`),
+      news: d.newsIds.slice(0, 5),
+      why: d.foundBecause,
+    })),
     sources: inv.sources.slice(0, 80).map((s) => ({ id: s.id, title: truncate(s.title, 80), publisher: s.publisher, category: s.category, verified: s.verified, used: s.usedInReasoning })),
     queries: inv.queries.slice(-30).map((q) => `${q.kind}:${q.text} [${q.status}]`),
   });
