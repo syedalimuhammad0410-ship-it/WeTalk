@@ -5,11 +5,14 @@ import type * as z from "zod/v4";
 import { db } from "../../db";
 import { AppError } from "../errors";
 import { markIntegration, resolveIntegrationKey } from "../workspace";
+import { env } from "../env";
+import { GeminiProvider, resolveGeminiModel } from "./gemini";
 
 /**
- * Thin, testable abstraction over the Claude API. All AI features go through
- * `getAi(workspaceId)`, which returns null when no key is configured so callers
- * can show "Connect Anthropic to enable this feature" instead of faking output.
+ * Thin, testable abstraction over the AI providers (Anthropic Claude or Google
+ * Gemini). All AI features go through `getAi(workspaceId)`, which returns null
+ * when no key is configured so callers can show "Connect an AI provider to
+ * enable this feature" instead of faking output.
  */
 export type AiJsonRequest<S extends z.ZodType> = {
   feature: string;
@@ -35,18 +38,70 @@ export function setAiFactoryForTests(f: Factory | null) {
 
 const FALLBACK_MODELS = new Set(["claude-opus-5-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5-1"]);
 
+/** Anthropic when connected, otherwise Gemini; null when neither key is configured. */
 export async function getAi(workspaceId: string): Promise<AiProvider | null> {
   if (testFactory) return testFactory(workspaceId);
-  const key = await resolveIntegrationKey(workspaceId, "ANTHROPIC");
-  if (!key) return null;
   const settings = await db.automationSettings.findUnique({ where: { workspaceId } });
-  return new AnthropicProvider(workspaceId, key.key, settings?.aiModel || "claude-opus-5-5", settings?.aiEffort || "medium", key.source);
+  const anthropic = await resolveIntegrationKey(workspaceId, "ANTHROPIC");
+  if (anthropic) {
+    const model = settings?.aiModel?.startsWith("claude") ? settings.aiModel : "claude-opus-5-5";
+    return new AnthropicProvider(workspaceId, anthropic.key, model, settings?.aiEffort || "medium", anthropic.source);
+  }
+  const gemini = await resolveIntegrationKey(workspaceId, "GEMINI");
+  if (gemini) {
+    const model = await resolveGeminiModel(gemini.key, env.geminiModel() || (settings?.aiModel?.startsWith("gemini") ? settings.aiModel : null));
+    return new GeminiAiProvider(workspaceId, gemini.key, model, gemini.source);
+  }
+  return null;
 }
 
 export async function requireAi(workspaceId: string, featureLabel: string) {
   const ai = await getAi(workspaceId);
-  if (!ai) throw new AppError("NOT_CONFIGURED", `Connect an Anthropic API key in Settings → Integrations to enable ${featureLabel}.`);
+  if (!ai) throw new AppError("NOT_CONFIGURED", `Connect an AI provider (Anthropic or Google Gemini) in Settings → Integrations to enable ${featureLabel}.`);
   return ai;
+}
+
+/** Records usage and connection status for Gemini calls, mirroring the Anthropic provider. */
+class GeminiAiProvider implements AiProvider {
+  private client: GeminiProvider;
+  constructor(
+    private workspaceId: string,
+    apiKey: string,
+    readonly model: string,
+    private keySource: "workspace" | "server",
+  ) {
+    this.client = new GeminiProvider(apiKey, model);
+  }
+
+  json<S extends z.ZodType>(req: AiJsonRequest<S>): Promise<z.infer<S>> {
+    return trackUsage(this.workspaceId, "GEMINI", this.model, this.keySource, req.feature, () => this.client.json(req));
+  }
+
+  text(req: AiTextRequest): Promise<string> {
+    return trackUsage(this.workspaceId, "GEMINI", this.model, this.keySource, req.feature, () => this.client.text(req));
+  }
+}
+
+async function trackUsage<T>(
+  workspaceId: string,
+  provider: "ANTHROPIC" | "GEMINI",
+  model: string,
+  keySource: "workspace" | "server",
+  feature: string,
+  fn: () => Promise<{ value: T; usage: { input_tokens: number; output_tokens: number } }>,
+  mapError: (e: unknown) => AppError = (e) => (e instanceof AppError ? e : new AppError("INTERNAL", `AI request failed: ${(e as Error)?.message ?? String(e)}`)),
+): Promise<T> {
+  try {
+    const { value, usage } = await fn();
+    await db.aiUsage.create({ data: { workspaceId, feature, model, inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } });
+    if (keySource === "workspace") await markIntegration(workspaceId, provider, true);
+    return value;
+  } catch (e) {
+    const mapped = mapError(e);
+    await db.aiUsage.create({ data: { workspaceId, feature, model, success: false, error: mapped.message.slice(0, 500) } }).catch(() => {});
+    if (mapped.code === "INVALID_CREDENTIALS" || mapped.code === "QUOTA_EXCEEDED") await markIntegration(workspaceId, provider, false, mapped.message);
+    throw mapped;
+  }
 }
 
 class AnthropicProvider implements AiProvider {
@@ -116,24 +171,8 @@ class AnthropicProvider implements AiProvider {
     if (stop === "max_tokens") throw new AppError("MALFORMED_RESPONSE", "The AI response was cut off (length limit). Nothing was saved; try a shorter request.");
   }
 
-  private async track<T>(feature: string, fn: () => Promise<{ value: T; usage: { input_tokens: number; output_tokens: number } }>): Promise<T> {
-    try {
-      const { value, usage } = await fn();
-      await db.aiUsage.create({
-        data: { workspaceId: this.workspaceId, feature, model: this.model, inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 },
-      });
-      if (this.keySource === "workspace") await markIntegration(this.workspaceId, "ANTHROPIC", true);
-      return value;
-    } catch (e) {
-      const mapped = mapAnthropicError(e);
-      await db.aiUsage
-        .create({ data: { workspaceId: this.workspaceId, feature, model: this.model, success: false, error: mapped.message.slice(0, 500) } })
-        .catch(() => {});
-      if (mapped.code === "INVALID_CREDENTIALS" || mapped.code === "QUOTA_EXCEEDED") {
-        await markIntegration(this.workspaceId, "ANTHROPIC", false, mapped.message);
-      }
-      throw mapped;
-    }
+  private track<T>(feature: string, fn: () => Promise<{ value: T; usage: { input_tokens: number; output_tokens: number } }>): Promise<T> {
+    return trackUsage(this.workspaceId, "ANTHROPIC", this.model, this.keySource, feature, fn, mapAnthropicError);
   }
 }
 

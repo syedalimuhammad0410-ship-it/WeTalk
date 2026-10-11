@@ -25,7 +25,7 @@ export default async function DashboardPage() {
   const max = Math.max(1, ...byStatus.map((s) => s._count));
   const missing = [
     !integrations.googlePlaces.configured && { label: "Connect Google Places to discover businesses", href: "/settings/integrations" },
-    !integrations.anthropic.configured && { label: "Connect Anthropic for AI-enhanced prompts, outreach and replies", href: "/settings/integrations" },
+    !integrations.anthropic.configured && !integrations.gemini.configured && { label: "Connect Anthropic or Google Gemini for AI-enhanced prompts, outreach and replies", href: "/settings/integrations" },
     integrations.email.length === 0 && { label: "Connect an email account to send outreach", href: "/settings/email" },
   ].filter(Boolean) as { label: string; href: string }[];
 

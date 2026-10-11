@@ -215,7 +215,10 @@ function Integrations({ d }: { d: D }) {
       <Section title="Business discovery — Google Places API (New)" description="Required for Find Businesses. Optional: enable PageSpeed Insights API on the same key for Lighthouse scores in audits.">
         <IntegrationKeyForm provider="google-places" status={d.integrations.googlePlaces} disabled={dis} onChange={() => router.refresh()} />
       </Section>
-      <Section title="AI provider — Anthropic" description="Powers fact extraction, prompt enhancement, outreach writing, reply analysis and drafting. All AI output passes anti-hallucination checks.">
+      <Section title="AI provider — Google Gemini" description="Connect either Gemini or Anthropic (you only need one). Powers fact extraction, prompt enhancement, outreach writing, reply analysis and drafting. Get a free key at aistudio.google.com → Get API key.">
+        <IntegrationKeyForm provider="gemini" status={d.integrations.gemini} disabled={dis} onChange={() => router.refresh()} />
+      </Section>
+      <Section title="AI provider — Anthropic" description="Alternative to Gemini. If both are connected, Anthropic is used. All AI output passes the same anti-hallucination checks.">
         <IntegrationKeyForm provider="anthropic" status={d.integrations.anthropic} disabled={dis} onChange={() => router.refresh()} />
       </Section>
     </>
@@ -228,7 +231,7 @@ function AiSettings({ d }: { d: D }) {
   const { save, busy } = useSaver("/api/settings/automation");
   const dis = !can(d, "automation.manage");
   return (
-    <Section title="AI settings" description={`Provider: Anthropic (${d.integrations.anthropic.configured ? "connected" : "not connected"}). Temperature isn't exposed: current Claude models use adaptive reasoning; use the effort level instead.`} footer={!dis && <Button loading={busy} onClick={() => save({ ...v, maxResponseWords: +v.maxResponseWords, autoReplyMinConfidence: +v.autoReplyMinConfidence, humanReviewBelowConfidence: +v.humanReviewBelowConfidence })}>Save</Button>}>
+    <Section title="AI settings" description={d.integrations.anthropic.configured ? "Provider: Anthropic (connected). Temperature isn't exposed: current Claude models use adaptive reasoning; use the effort level instead." : d.integrations.gemini.configured ? "Provider: Google Gemini (connected). The newest available Gemini Flash model is used automatically; the model and effort options below apply to Anthropic only." : "No AI provider connected yet — add a Gemini or Anthropic key in Settings → Integrations."} footer={!dis && <Button loading={busy} onClick={() => save({ ...v, maxResponseWords: +v.maxResponseWords, autoReplyMinConfidence: +v.autoReplyMinConfidence, humanReviewBelowConfidence: +v.humanReviewBelowConfidence })}>Save</Button>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Model" htmlFor="m"><Select id="m" value={v.aiModel} onChange={(e) => setV({ ...v, aiModel: e.target.value })} disabled={dis}>{AI_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</Select></Field>
         <Field label="Reasoning effort" htmlFor="ef" hint="Higher = more thorough, slower, more tokens."><Select id="ef" value={v.aiEffort} onChange={(e) => setV({ ...v, aiEffort: e.target.value })} disabled={dis}>{["low", "medium", "high", "xhigh"].map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>

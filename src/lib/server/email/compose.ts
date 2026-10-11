@@ -87,7 +87,7 @@ Rules:
       notes.push(`AI outreach unavailable: ${describeError(e)}. Used template instead.`);
     }
   } else if (!ai && settings.automation.aiOutreachGeneration) {
-    notes.push("Connect Anthropic to enable AI-written outreach; using your template.");
+    notes.push("Connect Anthropic or Gemini to enable AI-written outreach; using your template.");
   }
 
   if (!aiGenerated) {

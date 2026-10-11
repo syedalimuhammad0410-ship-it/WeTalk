@@ -91,6 +91,7 @@ enum JobStatus {
 enum IntegrationProvider {
   ANTHROPIC
   GOOGLE_PLACES
+  GEMINI
 }
 
 enum EmailProvider {

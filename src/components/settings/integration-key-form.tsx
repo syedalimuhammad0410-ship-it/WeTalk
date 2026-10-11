@@ -7,12 +7,12 @@ import { Badge } from "../ui/misc";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
 
-export function IntegrationKeyForm({ provider, status, disabled, onChange }: { provider: "anthropic" | "google-places"; status: { configured: boolean; source: string | null; hint: string | null; status?: string; lastError?: string | null }; disabled?: boolean; onChange?: () => void }) {
+export function IntegrationKeyForm({ provider, status, disabled, onChange }: { provider: "anthropic" | "gemini" | "google-places"; status: { configured: boolean; source: string | null; hint: string | null; status?: string; lastError?: string | null }; disabled?: boolean; onChange?: () => void }) {
   const toast = useToast();
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState<"save" | "test" | "remove" | null>(null);
-  const name = provider === "anthropic" ? "Anthropic API key" : "Google Maps Platform API key";
-  const env = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "GOOGLE_MAPS_API_KEY";
+  const name = { anthropic: "Anthropic API key", gemini: "Google Gemini API key", "google-places": "Google Maps Platform API key" }[provider];
+  const env = { anthropic: "ANTHROPIC_API_KEY", gemini: "GEMINI_API_KEY", "google-places": "GOOGLE_MAPS_API_KEY" }[provider];
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-subtle/50 px-4 py-3 text-sm">
@@ -44,7 +44,7 @@ export function IntegrationKeyForm({ provider, status, disabled, onChange }: { p
           }}
         >
           <Field label={status.configured ? "Replace key" : "API key"} htmlFor={`${provider}-key`} className="flex-1" hint={`Stored encrypted (AES-256-GCM). Or set ${env} on the server.`}>
-            <Input id={`${provider}-key`} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={provider === "anthropic" ? "sk-ant-…" : "AIza…"} />
+            <Input id={`${provider}-key`} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={provider === "anthropic" ? "sk-ant-…" : provider === "gemini" ? "Gemini key from aistudio.google.com" : "AIza…"} />
           </Field>
           <Button type="submit" loading={busy === "save"} loadingText="Testing…" disabled={key.trim().length < 8} className="sm:mb-5">
             Test & save

@@ -68,7 +68,7 @@ export async function buildBestPrompt(ctx: PromptContext, opts: { useAi: boolean
   notes.push(`Rule-based draft scored ${quality.score}/100.`);
 
   const ai = opts.useAi ? await getAi(opts.workspaceId) : null;
-  if (opts.useAi && !ai) notes.push("AI enhancement skipped: connect Anthropic in Settings → Integrations to enable it.");
+  if (opts.useAi && !ai) notes.push("AI enhancement skipped: connect Anthropic or Google Gemini in Settings → Integrations to enable it.");
   if (ai) {
     const r = await aiRewrite(
       ai,
@@ -262,7 +262,7 @@ export async function transformPrompt(workspaceId: string, promptId: string, op:
       const best = await buildBestPrompt({ ...ctx, options: { ...ctx.options, detail: "detailed" } }, { useAi: false, workspaceId });
       content = best.content;
     }
-    notes.push("Rebuilt from structured business data (connect Anthropic for AI-assisted editing that preserves manual edits).");
+    notes.push("Rebuilt from structured business data (connect Anthropic or Gemini for AI-assisted editing that preserves manual edits).");
     if (wasEdited) notes.push("Your manual edits remain available in version history.");
   }
   const quality = scorePrompt(content, ctx);

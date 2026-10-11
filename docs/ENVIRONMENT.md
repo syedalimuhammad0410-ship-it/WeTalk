@@ -8,6 +8,8 @@ Secrets live **only** in server environment variables or encrypted in the databa
 | `APP_URL` | yes | Public base URL (OAuth redirects, invite links, webhook URLs) |
 | `APP_ENCRYPTION_KEY` | yes | ≥ 32 random characters. AES-256-GCM key material for stored API keys and OAuth tokens. **Changing it makes stored credentials unreadable** — reconnect integrations afterwards |
 | `ANTHROPIC_API_KEY` | no | Server-wide default Claude key. Workspaces can instead save their own (encrypted) key in Settings |
+| `GEMINI_API_KEY` | no | Google Gemini key (aistudio.google.com). Used for AI features when no Anthropic key is set; can also be added per workspace in Settings → Integrations |
+| `GEMINI_MODEL` | no | Override the Gemini model (default: newest stable `gemini-*-flash` the key can use) |
 | `GOOGLE_MAPS_API_KEY` | no | Server-wide default Google Maps Platform key (Places API (New); optionally PageSpeed Insights API) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | no | Enables Google sign-in and Gmail connection (OAuth 2.0) |
 | `JOB_RUNNER` | no | `inline` (default), `external` (use `npm run worker`) or `cron` (serverless/Cloudflare: jobs run when `/api/internal/cron` is called each minute) |

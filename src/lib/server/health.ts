@@ -3,6 +3,7 @@ import type { IntegrationProvider } from "@prisma/client";
 import { db } from "../db";
 import { describeError, fetchWithTimeout } from "./errors";
 import { testAnthropicKey } from "./ai/client";
+import { testGeminiKey } from "./ai/gemini";
 import { resolveIntegrationKey } from "./workspace";
 import { env } from "./env";
 
@@ -15,8 +16,9 @@ export async function testIntegration(workspaceId: string, provider: Integration
   if (testOverride) return testOverride(provider, key);
   if (provider === "ANTHROPIC") {
     const s = await db.automationSettings.findUnique({ where: { workspaceId } });
-    return testAnthropicKey(key, s?.aiModel ?? "claude-opus-5-5");
+    return testAnthropicKey(key, s?.aiModel?.startsWith("claude") ? s.aiModel : "claude-opus-5-5");
   }
+  if (provider === "GEMINI") return testGeminiKey(key);
   try {
     const res = await fetchWithTimeout("https://places.googleapis.com/v1/places:searchText", {
       service: "Google Places API",
@@ -45,11 +47,14 @@ export async function systemHealth(workspaceId: string, opts: { live?: boolean }
   }
   if (!env.encryptionKey() || env.encryptionKey().length < 32) items.push({ name: "Encryption key", status: "error", detail: "APP_ENCRYPTION_KEY is missing or too short — credentials cannot be stored.", action: "Set a 32+ character APP_ENCRYPTION_KEY." });
 
-  for (const [prov, name, href] of [["ANTHROPIC", "AI (Anthropic)", "/settings/integrations"], ["GOOGLE_PLACES", "Business discovery (Google Places)", "/settings/integrations"]] as const) {
+  const anthropicSet = Boolean(await resolveIntegrationKey(workspaceId, "ANTHROPIC").catch(() => null));
+  for (const [prov, name, href] of [["ANTHROPIC", "AI (Anthropic)", "/settings/integrations"], ["GEMINI", "AI (Google Gemini)", "/settings/integrations"], ["GOOGLE_PLACES", "Business discovery (Google Places)", "/settings/integrations"]] as const) {
     const key = await resolveIntegrationKey(workspaceId, prov).catch(() => null);
+    // Only one AI provider is needed: hide the unused one once the other is connected.
+    if (!key && ((prov === "GEMINI" && anthropicSet) || (prov === "ANTHROPIC" && (await resolveIntegrationKey(workspaceId, "GEMINI").catch(() => null))))) continue;
     const cred = await db.integrationCredential.findUnique({ where: { workspaceId_provider: { workspaceId, provider: prov } } });
     if (!key) {
-      items.push({ name, status: "off", detail: "Not connected", action: `Add a ${prov === "ANTHROPIC" ? "Anthropic API key" : "Google Maps Platform API key with Places API (New) enabled"}.`, href });
+      items.push({ name, status: "off", detail: "Not connected", action: `Add ${prov === "GOOGLE_PLACES" ? "a Google Maps Platform API key with Places API (New) enabled" : "an Anthropic or Google Gemini API key"}.`, href });
       continue;
     }
     if (opts.live) {

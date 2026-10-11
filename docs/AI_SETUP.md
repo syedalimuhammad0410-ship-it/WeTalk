@@ -13,3 +13,14 @@ Every AI feature also works without AI where possible — and is clearly labelle
 | Reply drafts | Uses only your company profile; lists missing info (e.g. pricing) instead of inventing it | “Connect Anthropic to enable AI drafts” |
 
 Automatic replies are default-deny: see `src/lib/server/replies/policy.ts` and the unit tests in `tests/unit/rules-policy.test.ts`.
+
+## Google Gemini (alternative, has a free tier)
+
+You only need one AI provider. If both are connected, Anthropic is used.
+
+1. Go to **aistudio.google.com → Get API key** and create a key.
+2. In WebScout, open **Settings → Integrations → AI provider — Google Gemini** and paste the key. It's tested before it's saved. You can also set `GEMINI_API_KEY` on the server.
+3. WebScout uses the newest stable **Gemini Flash** model that the key can access. Set `GEMINI_MODEL` to override it, for example `gemini-2.5-pro`.
+
+Gemini output goes through the same schema validation, fact guard and safety rules as Claude output. If an answer is cut off, blocked or doesn't match the expected format, nothing is saved and you see a clear error.
+

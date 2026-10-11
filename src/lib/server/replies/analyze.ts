@@ -89,7 +89,7 @@ export async function analyzeInboundMessage(workspaceId: string, messageId: stri
   let contextResolution = "";
   let responseNeeded = !["SPAM", "AUTO_REPLY", "NOT_INTERESTED"].includes(intent);
   const ai = automation.aiResponseAnalysis ? await getAi(workspaceId) : null;
-  if (!ai) notes.push(automation.aiResponseAnalysis ? "AI analysis unavailable (connect Anthropic) — rule-based classification only." : "AI response analysis is disabled.");
+  if (!ai) notes.push(automation.aiResponseAnalysis ? "AI analysis unavailable (connect Anthropic or Gemini) — rule-based classification only." : "AI response analysis is disabled.");
   if (ai) {
     try {
       const a = await ai.json({
@@ -143,7 +143,7 @@ export async function analyzeInboundMessage(workspaceId: string, messageId: stri
   const blockedForDraft =
     automation.responseMode === "MANUAL" ? "Manual mode: AI does not draft replies" :
     !automation.aiResponseDrafting ? "AI response drafting is disabled" :
-    !ai ? "Connect Anthropic to enable AI drafts" :
+    !ai ? "Connect Anthropic or Gemini to enable AI drafts" :
     ["SPAM", "AUTO_REPLY"].includes(intent) ? "No reply needed for this message type" :
     business?.doNotContact ? "Lead is Do Not Contact" :
     business?.aiPaused ? "AI paused for this lead" :

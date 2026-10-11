@@ -46,6 +46,7 @@ export function AdminView({ data }: { data: any }) {
           <Card><CardHeader title="API configuration" action={<Link href="/settings/integrations" className="text-sm text-accent">Manage</Link>} />
             <dl className="space-y-2 p-5 text-sm">
               <div className="flex justify-between"><dt className="text-muted">Anthropic</dt><dd>{data.integrations.anthropic.configured ? `${data.integrations.anthropic.source} key ${data.integrations.anthropic.hint ?? ""}` : "Not connected"}</dd></div>
+              <div className="flex justify-between"><dt className="text-muted">Google Gemini</dt><dd>{data.integrations.gemini.configured ? `${data.integrations.gemini.source} key ${data.integrations.gemini.hint ?? ""}` : "Not connected"}</dd></div>
               <div className="flex justify-between"><dt className="text-muted">Google Places</dt><dd>{data.integrations.googlePlaces.configured ? `${data.integrations.googlePlaces.source} key ${data.integrations.googlePlaces.hint ?? ""}` : "Not connected"}</dd></div>
               <div className="flex justify-between"><dt className="text-muted">Google OAuth (sign-in/Gmail)</dt><dd>{data.integrations.googleOAuthAvailable ? "Configured" : "Not configured"}</dd></div>
               <div className="flex justify-between"><dt className="text-muted">Email sandbox</dt><dd>{data.integrations.sandboxAvailable ? "Allowed" : "Disabled"}</dd></div>

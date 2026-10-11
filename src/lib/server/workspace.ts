@@ -96,6 +96,8 @@ export async function getSettings(workspaceId: string) {
 
 // ───────────── Integration credentials (never returned to clients) ─────────────
 
+export const ENV_KEY_NAME: Record<IntegrationProvider, string> = { ANTHROPIC: "ANTHROPIC_API_KEY", GEMINI: "GEMINI_API_KEY", GOOGLE_PLACES: "GOOGLE_MAPS_API_KEY" };
+
 /** API keys are plain printable ASCII; masked copies ("AIza••••") or pasted spaces/quotes break every request. */
 function keyProblem(key: string): string | null {
   if (/[•*…]/.test(key)) return "That key is hidden/masked (it contains • or * characters). Copy the full key, e.g. via “Show key” in Google Cloud or the Anthropic console.";
@@ -123,11 +125,11 @@ export async function removeIntegrationKey(workspaceId: string, provider: Integr
 export async function resolveIntegrationKey(workspaceId: string, provider: IntegrationProvider): Promise<{ key: string; source: "workspace" | "server" } | null> {
   const cred = await db.integrationCredential.findUnique({ where: { workspaceId_provider: { workspaceId, provider } } });
   if (cred) return { key: decryptSecret(cred.secretEncrypted), source: "workspace" };
-  const fromEnv = (provider === "ANTHROPIC" ? env.anthropicKey() : env.googleMapsKey()).trim();
+  const fromEnv = ({ ANTHROPIC: env.anthropicKey, GEMINI: env.geminiKey, GOOGLE_PLACES: env.googleMapsKey } as const)[provider]().trim();
   if (!fromEnv) return null;
   const problem = keyProblem(fromEnv);
   if (problem) {
-    const name = provider === "ANTHROPIC" ? "ANTHROPIC_API_KEY" : "GOOGLE_MAPS_API_KEY";
+    const name = ENV_KEY_NAME[provider];
     throw new AppError("INVALID_CREDENTIALS", `The server's ${name} setting is invalid: ${problem} Update it in your hosting dashboard, or add a key in Settings → Integrations.`);
   }
   return { key: fromEnv, source: "server" };
@@ -156,6 +158,7 @@ export async function integrationSummary(workspaceId: string) {
   });
   return {
     anthropic: describe("ANTHROPIC", Boolean(env.anthropicKey())),
+    gemini: describe("GEMINI", Boolean(env.geminiKey())),
     googlePlaces: describe("GOOGLE_PLACES", Boolean(env.googleMapsKey())),
     email: accounts,
     googleOAuthAvailable: env.googleOAuthConfigured(),

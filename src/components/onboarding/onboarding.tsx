@@ -15,6 +15,7 @@ import { EmailConnect } from "../settings/email-connect";
 
 type Integrations = {
   anthropic: { configured: boolean; source: string | null; hint: string | null };
+  gemini: { configured: boolean; source: string | null; hint: string | null };
   googlePlaces: { configured: boolean; source: string | null; hint: string | null };
   email: { id: string; provider: string; emailAddress: string; status: string }[];
   googleOAuthAvailable: boolean;
@@ -136,8 +137,13 @@ export function Onboarding({ initial }: { initial: Initial }) {
               </Step>
             )}
             {step === 3 && (
-              <Step title="Connect your AI provider" desc="WebScout uses Anthropic Claude for website-fact extraction, prompt enhancement, outreach writing and reply analysis. Everything also works in rule-based mode without it — AI makes it deeper.">
-                {integrations && <IntegrationKeyForm provider="anthropic" status={integrations.anthropic} disabled={!isAdmin} onChange={refreshIntegrations} />}
+              <Step title="Connect your AI provider" desc="WebScout uses AI (Google Gemini or Anthropic Claude — you only need one) for website-fact extraction, prompt enhancement, outreach writing and reply analysis. Gemini has a free tier: get a key at aistudio.google.com. Everything also works in rule-based mode without AI — AI makes it deeper.">
+                {integrations && (
+                  <div className="space-y-6">
+                    <IntegrationKeyForm provider="gemini" status={integrations.gemini} disabled={!isAdmin} onChange={refreshIntegrations} />
+                    <IntegrationKeyForm provider="anthropic" status={integrations.anthropic} disabled={!isAdmin} onChange={refreshIntegrations} />
+                  </div>
+                )}
               </Step>
             )}
             {step === 4 && (

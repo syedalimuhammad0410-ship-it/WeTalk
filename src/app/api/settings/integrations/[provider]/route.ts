@@ -5,8 +5,10 @@ import { removeIntegrationKey, saveIntegrationKey } from "@/lib/server/workspace
 import { logActivity } from "@/lib/server/activity";
 import { testIntegration } from "@/lib/server/health";
 
+const PROVIDER_LABEL = { ANTHROPIC: "Anthropic", GEMINI: "Google Gemini", GOOGLE_PLACES: "Google Places" } as const;
+
 const provider = (p: string) => {
-  const v = { anthropic: "ANTHROPIC", "google-places": "GOOGLE_PLACES" }[p] as "ANTHROPIC" | "GOOGLE_PLACES" | undefined;
+  const v = { anthropic: "ANTHROPIC", gemini: "GEMINI", "google-places": "GOOGLE_PLACES" }[p] as "ANTHROPIC" | "GEMINI" | "GOOGLE_PLACES" | undefined;
   if (!v) throw new AppError("NOT_FOUND", "Unknown integration.");
   return v;
 };
@@ -17,13 +19,13 @@ export const PUT = api({ permission: "integrations.manage" }, async (req, ctx, p
   const test = await testIntegration(ctx.workspace.id, prov, key);
   if (!test.ok) throw new AppError("INVALID_CREDENTIALS", `Key not saved — the connection test failed: ${test.error}`);
   await saveIntegrationKey(ctx.workspace.id, prov, key);
-  await logActivity({ workspaceId: ctx.workspace.id, userId: ctx.user.id, action: "integration.connected", summary: `${prov === "ANTHROPIC" ? "Anthropic" : "Google Places"} API key saved` });
+  await logActivity({ workspaceId: ctx.workspace.id, userId: ctx.user.id, action: "integration.connected", summary: `${PROVIDER_LABEL[prov]} API key saved` });
   return { ok: true };
 });
 
 export const DELETE = api({ permission: "integrations.manage" }, async (_req, ctx, p) => {
   const prov = provider(p.provider!);
   await removeIntegrationKey(ctx.workspace.id, prov);
-  await logActivity({ workspaceId: ctx.workspace.id, userId: ctx.user.id, action: "integration.removed", summary: `${prov === "ANTHROPIC" ? "Anthropic" : "Google Places"} API key removed` });
+  await logActivity({ workspaceId: ctx.workspace.id, userId: ctx.user.id, action: "integration.removed", summary: `${PROVIDER_LABEL[prov]} API key removed` });
   return { ok: true };
 });
