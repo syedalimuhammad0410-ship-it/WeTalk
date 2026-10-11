@@ -96,9 +96,18 @@ export async function getSettings(workspaceId: string) {
 
 // ───────────── Integration credentials (never returned to clients) ─────────────
 
+/** API keys are plain printable ASCII; masked copies ("AIza••••") or pasted spaces/quotes break every request. */
+function keyProblem(key: string): string | null {
+  if (/[•*…]/.test(key)) return "That key is hidden/masked (it contains • or * characters). Copy the full key, e.g. via “Show key” in Google Cloud or the Anthropic console.";
+  if (/[^\x21-\x7e]/.test(key)) return "That key contains spaces, quotes or other invalid characters. Copy the key again exactly as shown by the provider.";
+  return null;
+}
+
 export async function saveIntegrationKey(workspaceId: string, provider: IntegrationProvider, secret: string) {
-  const trimmed = secret.trim();
+  const trimmed = secret.trim().replace(/^["']|["']$/g, "");
   if (trimmed.length < 8) throw new AppError("VALIDATION", "That key looks too short.");
+  const problem = keyProblem(trimmed);
+  if (problem) throw new AppError("VALIDATION", problem);
   return db.integrationCredential.upsert({
     where: { workspaceId_provider: { workspaceId, provider } },
     create: { workspaceId, provider, secretEncrypted: encryptSecret(trimmed), secretHint: secretHint(trimmed) },
@@ -114,8 +123,14 @@ export async function removeIntegrationKey(workspaceId: string, provider: Integr
 export async function resolveIntegrationKey(workspaceId: string, provider: IntegrationProvider): Promise<{ key: string; source: "workspace" | "server" } | null> {
   const cred = await db.integrationCredential.findUnique({ where: { workspaceId_provider: { workspaceId, provider } } });
   if (cred) return { key: decryptSecret(cred.secretEncrypted), source: "workspace" };
-  const fromEnv = provider === "ANTHROPIC" ? env.anthropicKey() : env.googleMapsKey();
-  return fromEnv ? { key: fromEnv, source: "server" } : null;
+  const fromEnv = (provider === "ANTHROPIC" ? env.anthropicKey() : env.googleMapsKey()).trim();
+  if (!fromEnv) return null;
+  const problem = keyProblem(fromEnv);
+  if (problem) {
+    const name = provider === "ANTHROPIC" ? "ANTHROPIC_API_KEY" : "GOOGLE_MAPS_API_KEY";
+    throw new AppError("INVALID_CREDENTIALS", `The server's ${name} setting is invalid: ${problem} Update it in your hosting dashboard, or add a key in Settings → Integrations.`);
+  }
+  return { key: fromEnv, source: "server" };
 }
 
 export async function markIntegration(workspaceId: string, provider: IntegrationProvider, ok: boolean, error?: string) {
