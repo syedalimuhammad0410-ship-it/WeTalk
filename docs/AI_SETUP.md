@@ -24,3 +24,13 @@ You only need one AI provider. If both are connected, Anthropic is used.
 
 Gemini output goes through the same schema validation, fact guard and safety rules as Claude output. If an answer is cut off, blocked or doesn't match the expected format, nothing is saved and you see a clear error.
 
+
+## Pricing and quotes
+
+The AI quotes prices only from **Settings → Company profile → Pricing** (with pricing switched on):
+
+- **Outreach emails** may mention one "starting from" price for the best-fitting package, and only if it clearly fits.
+- **Reply drafts** for pricing questions recommend one package and say why, using the lead's business type, website status and audit findings. They quote the exact figures, list what the package includes, and may offer the monthly website-management plan and one or two relevant add-ons. They ask scoping questions and give a next step.
+- The AI never adds up totals, applies discounts or uses a figure that isn't in the price list. The commitment scanner compares amounts by value ($2500 = $2,500 = 2,500 CAD) and blocks any other figure.
+
+With pricing switched off, the AI explains what affects the price, asks scoping questions and offers a tailored quote.

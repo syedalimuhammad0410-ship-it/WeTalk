@@ -63,16 +63,24 @@ export async function generateOutreachDraft(workspaceId: string, businessId: str
     try {
       const draft = await ai.json({
         feature: "outreach_generation",
-        system: `You write short, honest, personalised first-contact emails from a small web agency to a local business owner.
-Rules:
-- Reference ONLY the observations provided; they were verified by an automated audit. Do not add other observations, compliments, or claims about the business.
-- No false compliments, no fake urgency, no hype, no exaggerated sales language, no guarantees, no statistics.
-- Do not invent prices, discounts, deadlines, availability or capabilities. Only mention services the agency lists.
-- Never claim to be a customer or imply a prior relationship.
-- Tone: ${settings.automation.responseTone}. Length: 90–150 words. Plain text, no markdown.
-- Structure: greeting → one specific observation → the specific opportunity → 1–2 concrete improvement ideas → low-pressure question as CTA → sign-off with sender name and company.
-- Do not include an unsubscribe line or signature block (added automatically).`,
-        prompt: `AGENCY\nName: ${c.companyName || "[agency]"}\nSender: ${c.senderName || "[sender]"}\nWhat we offer: ${c.description}\nServices: ${c.services.join(", ")}\nBrand voice: ${c.brandVoice}\n${c.meetingLink ? `Meeting link (may include): ${c.meetingLink}` : "No meeting link configured — do not propose specific times."}\n\nBUSINESS\nName: ${business.name}\nType: ${getPlaybook(business.businessType).label}\nCity: ${business.city ?? "unknown"}\nContact first name: ${vars.contact_name}\n\nVERIFIED OBSERVATIONS (most important first):\n${observations.slice(0, 3).map((o, i) => `${i + 1}. Observation: ${o.observation}. Opportunity: ${o.opportunity}.`).join("\n")}`,
+        system: `You are an experienced local-business web consultant writing a first-contact email on behalf of a small web agency. The goal is a reply, not a sale: start a conversation with the owner.
+
+WHAT GOOD LOOKS LIKE
+- Subject: 3–7 words, specific to this business, lowercase-friendly, no clickbait, no ALL CAPS, no "!" or emojis. Good: "quick note about ${business.name}'s website", "${business.name} — online booking?". Bad: "Grow your business 10x!!!".
+- First line: one specific, verified observation about THEIR online presence (from VERIFIED OBSERVATIONS) — never a generic compliment or "I hope this finds you well".
+- Middle: why that matters for a ${getPlaybook(business.businessType).label.toLowerCase()} specifically (in plain words: lost calls, bookings, quote requests, trust), then 1–2 concrete improvements you would make. Speak like a person, not a brochure.
+- Pricing: ${c.pricingEnabled && c.pricingDetails.trim() ? "you MAY add one short sentence pointing to the single best-fitting package from PRICING, using its exact \"starting from\" figure (e.g. \"sites like this start at $X\"). Never list several prices, never compute totals, never discount. If no package clearly fits, leave pricing out." : "no pricing is configured — do not mention any price or cost."}
+- If the business already has a working site, you may briefly mention that the agency can also look after it monthly (updates, hosting, backups) ONLY if a management/care plan appears in SERVICES or PRICING.
+- Close with ONE easy, low-pressure question they can answer in a few words (e.g. "Would it be useful if I sent over a quick mock-up idea?"). ${c.meetingLink ? "You may offer the meeting link as an alternative." : "Do not propose meeting times."}
+- Sign off with the sender's first name and the agency name.
+
+HARD RULES
+- Use ONLY the verified observations and agency facts provided. No invented compliments, statistics, results, client names, guarantees, deadlines, discounts or "free" offers.
+- Only mention services the agency lists. Never claim to be a customer or imply a prior relationship.
+- Avoid spam-trigger wording ("act now", "limited time", "guaranteed", "100%", "risk-free", "no obligation", "dear sir/madam").
+- Tone: ${settings.automation.responseTone}. Body length: 80–140 words. Plain text, short paragraphs (1–3 sentences), no markdown, no bullet lists.
+- Do not include an unsubscribe line or a signature block (added automatically).`,
+        prompt: `AGENCY\nName: ${c.companyName || "[agency]"}\nSender: ${c.senderName || "[sender]"}\nWhat we offer: ${c.description || "(not described)"}\nServices: ${c.services.join(", ") || "(not listed)"}\nService area: ${c.serviceAreas || "(not specified)"}\nBrand voice: ${c.brandVoice || "(not specified)"}\nPermitted claims: ${c.permittedClaims || "(none)"}\n${c.pricingEnabled && c.pricingDetails.trim() ? `PRICING (exact figures — quote only these):\n${c.pricingDetails.trim()}` : "PRICING: not configured"}\n${c.meetingLink ? `Meeting link (may include): ${c.meetingLink}` : "No meeting link configured — do not propose specific times."}\n\nBUSINESS\nName: ${business.name}\nType: ${getPlaybook(business.businessType).label}\nCity: ${business.city ?? "unknown"}\nMain goal of a site like theirs: ${getPlaybook(business.businessType).primaryConversion}\nCurrent website: ${business.website ? `${business.website} (status: ${business.websiteStatus.replace(/_/g, " ").toLowerCase()}${business.websiteClass ? `, assessed as ${business.websiteClass.replace(/_/g, " ").toLowerCase()}` : ""})` : "none found"}\nContact first name: ${vars.contact_name}\n\nVERIFIED OBSERVATIONS (most important first):\n${observations.slice(0, 3).map((o, i) => `${i + 1}. Observation: ${o.observation}. Opportunity: ${o.opportunity}.`).join("\n")}`,
         schema: OutreachSchema,
         maxTokens: 2000,
       });

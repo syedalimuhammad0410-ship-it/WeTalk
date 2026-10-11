@@ -9,6 +9,8 @@ import { changeLeadStatus } from "../leads";
 import { getSettings } from "../workspace";
 import { stripQuotedReply } from "../email/mime";
 import { scanCommitments } from "../email/safety";
+import { outreachObservations } from "../email/observations";
+import { getPlaybook } from "../intel/playbooks";
 import { evaluateAutoSend } from "./policy";
 import { ruleClassify } from "./rules";
 
@@ -150,6 +152,8 @@ export async function analyzeInboundMessage(workspaceId: string, messageId: stri
     business?.humanTakeover ? "Human has taken over" :
     !responseNeeded ? "AI judged that no response is needed" : null;
 
+  const leadAudit = business && !blockedForDraft ? await db.websiteAudit.findFirst({ where: { businessId: business.id, status: "COMPLETED" }, orderBy: { createdAt: "desc" }, include: { findings: true } }) : null;
+  const leadObservations = business ? outreachObservations(business, leadAudit).slice(0, 3) : [];
   let draftId: string | null = null;
   let draftIssues: string[] = [];
   let missingInfo: string[] = [];
@@ -160,15 +164,32 @@ export async function analyzeInboundMessage(workspaceId: string, messageId: stri
     try {
       const d = await ai.json({
         feature: "reply_drafting",
-        system: `You draft email replies on behalf of ${company.senderName || "the sender"} at ${company.companyName || "a small web agency"}.
-Read the ENTIRE conversation and reply to the latest message from THEM in context.
-Hard rules — never break them:
-- Do NOT invent prices, discounts, meeting availability, services, guarantees, deadlines, turnaround times or contract terms. Use only what is in COMPANY FACTS.
-- If they ask for something not in COMPANY FACTS (e.g. price when no pricing is configured), acknowledge it, offer to follow up with specifics, and list it in missing_info.
+        system: `You draft email replies on behalf of ${company.senderName || "the sender"} at ${company.companyName || "a small web agency"} — a helpful, straightforward web consultant writing to a local business owner.
+Read the ENTIRE conversation and reply to the latest message from THEM, in context. Answer what they actually asked first, in the first sentence or two.
+
+WHEN THEY ASK ABOUT PRICE, A QUOTE OR "WHAT WOULD IT COST"
+${company.pricingEnabled && company.pricingDetails.trim()
+  ? `- Recommend the ONE package from PRICING that best fits this business and say why in one line (tie it to their business type, current website status or the audit findings in LEAD CONTEXT).
+- Quote that package's exact figure from PRICING and summarise what it includes using only what PRICING says.
+- If it genuinely fits (e.g. they have a site to maintain, or are buying a new one), mention the most suitable monthly website management/care plan from PRICING as an optional extra, with its exact price.
+- Mention at most 1–2 relevant add-ons from PRICING (e.g. online booking for appointment-based businesses, online store for retailers) — only if they clearly fit.
+- Say the figures are starting prices and the final quote depends on scope (number of pages, content, features). Include any terms PRICING states (taxes, deposit, timeline) briefly if relevant.
+- Never compute totals or bundles, never discount, never quote a figure that is not in PRICING.
+- Ask 1–2 short scoping questions (e.g. how many services/pages, do they need online booking or payments, do they have a logo and photos) and give one clear next step.`
+  : `- No pricing is configured. Do not state any figure. Thank them, explain what the price depends on (pages, features, content), ask 1–2 scoping questions, offer to send a tailored quote, and list "pricing" in missing_info.`}
+
+OTHER SITUATIONS
+- Interested / questions: answer briefly and concretely from COMPANY FACTS, then propose one next step${company.meetingLink ? " (you may share the meeting link)" : ""}.
+- Not interested / unsubscribe: one short, polite line — no persuasion, no questions.
+- Confused about who you are: explain plainly who is writing and why (the audit of their online presence), with no pressure.
+
+HARD RULES — never break them
+- Do NOT invent prices, discounts, meeting availability, services, guarantees, deadlines, turnaround times or contract terms. Use only what is in COMPANY FACTS and PRICING.
+- If they ask for something not covered (e.g. a feature or term not listed), acknowledge it, offer to follow up with specifics, and list it in missing_info.
 - If a meeting is requested and a meeting link exists, you may share the link; never propose specific times yourself.
-- Do not claim to be human or make claims about the business you contacted beyond what the conversation states.
-- Tone: ${automation.responseTone}. Max ${automation.maxResponseWords} words. Plain text. No subject line, no signature (added automatically). Start with a greeting using their name if known.`,
-        prompt: `COMPANY FACTS\nCompany: ${company.companyName}\nWhat we do: ${company.description}\nServices: ${company.services.join(", ") || "(not listed)"}\nPricing: ${company.pricingEnabled && company.pricingDetails ? company.pricingDetails : "NOT CONFIGURED — do not state any price"}\nMeeting link: ${company.meetingLink || "NOT CONFIGURED — do not propose times"}\nPermitted claims: ${company.permittedClaims || "(none beyond the above)"}\nBrand voice: ${company.brandVoice}\n\nBUSINESS: ${business?.name ?? "unknown"}\nINTENT: ${intent}${contextResolution ? `\nCONTEXT: ${contextResolution}` : ""}\n\nCONVERSATION (oldest first):\n${renderThread(thread)}\n\nWrite the reply to message #${thread.length}.`,
+- Do not claim to be human or make claims about their business beyond LEAD CONTEXT and the conversation.
+- Tone: ${automation.responseTone}. Max ${automation.maxResponseWords} words. Plain text, short paragraphs, no markdown. No subject line, no signature (added automatically). Start with a greeting using their name if known.`,
+        prompt: `COMPANY FACTS\nCompany: ${company.companyName}\nWhat we do: ${company.description}\nServices: ${company.services.join(", ") || "(not listed)"}\nService area: ${company.serviceAreas || "(not specified)"}\n${company.pricingEnabled && company.pricingDetails.trim() ? `PRICING (exact figures — quote only these):\n${company.pricingDetails.trim()}` : "PRICING: NOT CONFIGURED — do not state any price"}\nMeeting link: ${company.meetingLink || "NOT CONFIGURED — do not propose times"}\nPermitted claims: ${company.permittedClaims || "(none beyond the above)"}\nBrand voice: ${company.brandVoice}\n\nLEAD CONTEXT\nBusiness: ${business?.name ?? "unknown"}${business ? `\nType: ${getPlaybook(business.businessType).label}\nCity: ${business.city ?? "unknown"}\nMain goal of a site like theirs: ${getPlaybook(business.businessType).primaryConversion}\nCurrent website: ${business.website ? `${business.website} (status: ${business.websiteStatus.replace(/_/g, " ").toLowerCase()}${business.websiteClass ? `, assessed as ${business.websiteClass.replace(/_/g, " ").toLowerCase()}` : ""})` : "none found"}${leadObservations.length ? `\nVerified audit findings:\n${leadObservations.map((o) => `- ${o.observation} → ${o.opportunity}`).join("\n")}` : ""}` : ""}\nINTENT: ${intent}${contextResolution ? `\nCONTEXT: ${contextResolution}` : ""}\n\nCONVERSATION (oldest first):\n${renderThread(thread)}\n\nWrite the reply to message #${thread.length}.`,
         schema: DraftSchema,
         maxTokens: 3000,
       });

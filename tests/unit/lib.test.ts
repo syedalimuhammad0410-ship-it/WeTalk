@@ -59,6 +59,14 @@ describe("anti-hallucination guards", () => {
     expect(scanCommitments("Happy to put together a tailored quote.", c)).toEqual([]);
     expect(scanCommitments("Sites start at $2,500", { ...c, pricingEnabled: true, pricingDetails: "Sites start at $2,500" })).toEqual([]);
   });
+  it("commitment scanner matches configured prices by value, not formatting", () => {
+    const c = { pricingEnabled: true, pricingDetails: "Business website: from $2,500. Care plan: $99/month. Logo: 350 CAD", meetingLink: "", permittedClaims: "", services: [] };
+    expect(scanCommitments("Sites like yours start at $2500, and our care plan is $99 a month.", c)).toEqual([]);
+    expect(scanCommitments("A logo would be $350.", c)).toEqual([]);
+    expect(scanCommitments("Altogether that's $2,599.", c)).toEqual([expect.stringContaining("$2,599")]);
+    expect(scanCommitments("Normally $3k but for you $2,500.", c)).toEqual([expect.stringContaining("$3k")]);
+    expect(scanCommitments("It's $2,500.", { ...c, pricingEnabled: false })).toHaveLength(1);
+  });
 });
 
 describe("business type intelligence", () => {

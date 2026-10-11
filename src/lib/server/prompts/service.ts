@@ -13,10 +13,19 @@ export const QUALITY_TARGET = 85;
 
 type Candidate = { content: string; generator: "RULES" | "AI"; quality: QualityReport; notes: string[] };
 
-const SYSTEM_PROMPT = `You are a senior web strategist, UX designer, conversion specialist, SEO specialist and front-end architect writing an implementation specification that another AI coding agent will follow to build a website for a specific local business.
+const SYSTEM_PROMPT = `You are a senior web strategist, UX designer, conversion copywriter, local-SEO specialist and front-end architect. You are writing an implementation specification that another AI coding agent will follow, step by step, to build a production website for ONE specific local business. A vague spec produces a generic site; make every instruction concrete enough to build without guessing.
+
+How to make it excellent:
+- Be specific to THIS business type, city and the audit findings: say what each page must contain, in what order, and why it helps a visitor take the main action.
+- For every key section give copy DIRECTION (what the headline must communicate, tone, length, what proof belongs nearby) and, where useful, a sample headline or button label marked RECOMMENDATION that uses only facts from FACTS or [placeholders].
+- Make conversion paths explicit: primary call to action per page, where it appears (header, hero, sticky mobile bar, end of page), form fields and success/error states.
+- Mobile-first: describe the phone layout first, tap targets, click-to-call/map actions, and what collapses or reorders on small screens.
+- Local SEO: page titles and meta descriptions patterns, headings that name the service and area, LocalBusiness structured data fields (values from FACTS or [placeholders]), internal links, image alt text rules.
+- Owner-managed content: specify which content the owner must be able to edit without a developer (services, hours, photos, team, FAQs, menus/price lists if they publish them, announcements) and structure it as editable collections or CMS fields, so the site can be maintained on a monthly website-management plan.
+- Quality bars: accessibility (WCAG 2.2 AA behaviours), performance (optimised images, lazy loading, no heavy sliders), privacy (consent for analytics), and clear acceptance criteria a tester can check.
 
 Absolute rules:
-- Use ONLY the facts in the FACTS block. Do not add phone numbers, emails, addresses, prices, hours, years, team names, ratings, review counts, awards, certifications, customer counts or any other factual detail that is not in FACTS.
+- Use ONLY the facts in the FACTS block. Do not add phone numbers, emails, addresses, prices, hours, years, team names, ratings, review counts, awards, certifications, customer counts or any other factual detail that is not in FACTS — not even as an example. Never write money amounts, star ratings, "X years", or "N customers/clients/projects" unless they appear in FACTS.
 - Keep every placeholder in square brackets. Where information is missing, add more placeholders rather than guessing.
 - Clearly label assumptions as INFERRED and suggestions as RECOMMENDATION.
 - Keep every numbered section heading exactly as written (including the ===== rules) and in the same order.
@@ -74,7 +83,7 @@ export async function buildBestPrompt(ctx: PromptContext, opts: { useAi: boolean
       ai,
       ctx,
       content,
-      `Deepen this specification for ${ctx.business.name} specifically. Make page content guidance, hero copy direction, feature rationale, conversion strategy and edge cases more specific to a ${ctx.playbook.label.toLowerCase()}${ctx.city ? ` in ${ctx.city}` : ""} and to the audit findings. Keep it at least as detailed as the current version.`,
+      `Deepen this specification for ${ctx.business.name} specifically. Make page-by-page content guidance, hero copy direction (with RECOMMENDATION sample headlines built only from FACTS or [placeholders]), feature rationale, conversion paths, mobile behaviour, local SEO, owner-editable content and edge cases more specific to a ${ctx.playbook.label.toLowerCase()}${ctx.city ? ` in ${ctx.city}` : ""} and to the audit findings. Remove generic filler that would apply to any website. Keep it at least as detailed as the current version.`,
       "prompt_generation",
     );
     notes.push(r.note);
@@ -243,7 +252,7 @@ export async function transformPrompt(workspaceId: string, promptId: string, op:
   let generator = "RULES";
   const notes: string[] = [];
   const instructions: Record<PromptTransform, string> = {
-    IMPROVE: "Improve clarity, specificity to this business, and completeness. Fix vague instructions. Keep all content that is useful.",
+    IMPROVE: "Improve clarity, specificity to this business, and completeness. Replace vague instructions (e.g. \"make it modern\", \"add a nice hero\") with concrete, buildable ones; strengthen conversion paths, mobile behaviour, local SEO and owner-editable content guidance. Keep all content that is useful.",
     SHORTEN: "Make this specification more concise (roughly 50–60% of current length) while keeping every section heading, all factuality rules, all placeholders, the forms field lists and the acceptance criteria.",
     EXPAND: "Make this specification more detailed: deeper page-by-page content guidance, more edge cases, more precise component behaviour, richer conversion strategy — specific to this business.",
     ADD_FEATURE: `Add the feature “${arg ? FEATURES[arg]?.name : ""}” throughout the specification (functionality, relevant pages, forms, analytics, acceptance criteria). Implementation notes: ${arg ? FEATURES[arg]?.spec.join(" ") : ""}`,
