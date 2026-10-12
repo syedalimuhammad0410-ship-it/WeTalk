@@ -18,7 +18,7 @@ type Job = { id: string; label: string; status: string; progress: number; messag
 export function DiscoverForm({ configured, canRun, campaigns, recent, defaultCampaignId }: { configured: boolean; canRun: boolean; campaigns: { id: string; name: string }[]; recent: Job[]; defaultCampaignId: string }) {
   const router = useRouter();
   const toast = useToast();
-  const [f, setF] = useState({ location: "", category: "", searchTerms: "", radiusKm: "0", limit: "60", minRating: "0", maxRating: "5", website: "any", openStatus: "operational", autoAudit: true, campaignId: defaultCampaignId });
+  const [f, setF] = useState({ location: "", category: "", searchTerms: "", radiusKm: "0", limit: "60", minRating: "0", maxRating: "5", website: "any", openStatus: "operational", smallOnly: true, autoAudit: true, campaignId: defaultCampaignId });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
@@ -90,6 +90,7 @@ export function DiscoverForm({ configured, canRun, campaigns, recent, defaultCam
               <Field label="Website" htmlFor="web"><Select id="web" value={f.website} onChange={set("website")}><option value="any">Any</option><option value="has">Has website</option><option value="none">No website</option></Select></Field>
               <Field label="Open / closed" htmlFor="open"><Select id="open" value={f.openStatus} onChange={set("openStatus")}><option value="operational">Operational only</option><option value="any">Include closed</option></Select></Field>
               {campaigns.length > 0 && <Field label="Add to campaign" htmlFor="camp" className="sm:col-span-2"><Select id="camp" value={f.campaignId} onChange={set("campaignId")}><option value="">None</option>{campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>}
+              <div className="sm:col-span-2"><Checkbox checked={f.smallOnly} onChange={(v) => setF((s) => ({ ...s, smallOnly: v }))} label="Small local businesses only (skip chains, franchises, landmarks, attractions and big-box stores)" /></div>
               <div className="sm:col-span-2"><Checkbox checked={f.autoAudit} onChange={(v) => setF((s) => ({ ...s, autoAudit: v }))} label="Analyze websites automatically after discovery (enables opportunity filters)" /></div>
             </div>
             <div className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">

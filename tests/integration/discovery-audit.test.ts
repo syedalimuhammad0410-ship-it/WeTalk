@@ -58,6 +58,31 @@ describe("business discovery (Google Places API, mocked)", () => {
     spy.mockRestore();
   });
 
+  it("keeps only small local businesses: skips landmarks, attractions, chains and multi-location brands", async () => {
+    const { ws, owner } = await makeWorkspace();
+    await saveIntegrationKey(ws.id, "GOOGLE_PLACES", "AIza-test-key-123");
+    const results = { places: [
+      place(1, { displayName: { text: "Joe's Family Plumbing" } }),
+      place(2, { displayName: { text: "CN Tower" }, types: ["tourist_attraction", "observation_deck"], primaryType: "tourist_attraction", userRatingCount: 98000 }),
+      place(3, { displayName: { text: "Tim Hortons" }, types: ["coffee_shop"], primaryType: "coffee_shop" }),
+      place(4, { displayName: { text: "Ripley's Aquarium of Canada" }, types: ["aquarium"], primaryType: "aquarium" }),
+      place(5, { displayName: { text: "Busy Downtown Diner" }, types: ["restaurant"], primaryType: "restaurant", userRatingCount: 4200 }),
+      place(6, { displayName: { text: "QuickFix Auto - Dundas St" } }),
+      place(7, { displayName: { text: "QuickFix Auto - Queen St" } }),
+      place(8, { displayName: { text: "Maria's Hair Studio" }, types: ["hair_salon"], primaryType: "hair_salon" }),
+    ] };
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify(results), { status: 200 }));
+    const r = await runDiscovery(ws.id, DiscoveryInput.parse({ location: "Toronto", category: "businesses", autoAudit: false }), ctx, owner.id);
+    const names = (await db.business.findMany({ where: { workspaceId: ws.id }, orderBy: { name: "asc" } })).map((b) => b.name);
+    expect(names).toEqual(["Joe's Family Plumbing", "Maria's Hair Studio", "QuickFix Auto - Dundas St"]);
+    expect(r.notSmall).toBe(5);
+    expect(r.message).toMatch(/5 skipped as chains, landmarks or large businesses/);
+    // Turning the option off keeps everything.
+    const all = await runDiscovery(ws.id, DiscoveryInput.parse({ location: "Toronto", category: "businesses", smallOnly: false, autoAudit: false }), ctx, owner.id);
+    expect(all.created).toBe(5);
+    spy.mockRestore();
+  });
+
   it("reports quota errors clearly and keeps what was already added", async () => {
     const { ws, owner } = await makeWorkspace();
     await saveIntegrationKey(ws.id, "GOOGLE_PLACES", "AIza-test-key-123");

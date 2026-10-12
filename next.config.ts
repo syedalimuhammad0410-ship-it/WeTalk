@@ -9,7 +9,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["@prisma/client", ".prisma/client", "bcryptjs", "cheerio", "pdfkit"],
+  serverExternalPackages: ["@prisma/client", ".prisma/client", "bcryptjs", "cheerio", "pdfkit", "exceljs"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

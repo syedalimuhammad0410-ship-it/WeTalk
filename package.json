@@ -28,6 +28,7 @@
     "bcryptjs": "^3.0.3",
     "cheerio": "^1.2.0",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "geist": "^1.7.2",
     "lucide-react": "^1.51.0",
     "next": "15.5",

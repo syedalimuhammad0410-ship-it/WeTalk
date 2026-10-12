@@ -5,6 +5,7 @@ import { AppError } from "./errors";
 import { getPlaybook } from "./intel/playbooks";
 import { csvCell, leadWhere, type LeadFiltersT } from "./queries";
 import { EXPORT_COLUMNS, type ExportColumnId } from "../export-columns";
+import type { ExtractedFacts } from "./audit/service";
 
 /** Everything any export column or the PDF report needs for one lead. */
 const LEAD_INCLUDE = {
@@ -21,14 +22,34 @@ export type ExportLead = Prisma.BusinessGetPayload<{ include: typeof LEAD_INCLUD
 
 type Reason = { label: string; points: number; kind: string };
 type Feature = { name: string; priority: string; status: string; why?: string };
-const fmtDate = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : "");
-const human = (s: string | null | undefined) => (s ? s.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "");
+export const fmtDate = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : "");
+export const human = (s: string | null | undefined) => (s ? s.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "");
 
 export function leadReasons(l: ExportLead): Reason[] {
   return ((l.opportunities[0]?.reasons as Reason[] | undefined) ?? []).filter((r) => r.points > 0);
 }
 export function leadMissingFeatures(l: ExportLead): Feature[] {
   return ((l.opportunities[0]?.recommendedFeatures as Feature[] | undefined) ?? []).filter((f) => f.status !== "present");
+}
+
+const facts = (l: ExportLead) => (l.audits[0]?.extracted ?? null) as Partial<ExtractedFacts> | null;
+
+/** One or two sentences on what the business does: the audit's reading of their own site, their site's description, or what Google knows. */
+export function leadDescription(l: ExportLead): string {
+  const ex = facts(l);
+  const fromSite = ex?.ai?.summary?.trim() || ex?.metaDescription?.trim();
+  if (fromSite) return fromSite;
+  const kind = l.category ? l.category.replace(/^\w/, (c) => c.toUpperCase()) : getPlaybook(l.businessType).label;
+  const rated = l.rating != null ? `, rated ${l.rating}/5 from ${l.reviewCount ?? 0} Google reviews` : "";
+  return `${kind}${l.city ? ` in ${l.city}` : ""}${rated}.`;
+}
+/** Services the business's own website says it offers (from the audit). */
+export function leadServices(l: ExportLead): string[] {
+  return (facts(l)?.ai?.services ?? []).map((s) => s.name).filter(Boolean).slice(0, 12);
+}
+export function leadSocials(l: ExportLead): string[] {
+  const links = (l.socialLinks ?? {}) as Record<string, string>;
+  return Object.values(links).filter((v) => typeof v === "string" && v);
 }
 
 /** Value of one export column for one lead (plain text). */
@@ -38,6 +59,9 @@ export function columnValue(id: ExportColumnId, l: ExportLead): string | number 
     case "name": return l.name;
     case "type": return getPlaybook(l.businessType).label;
     case "category": return l.category;
+    case "description": return leadDescription(l);
+    case "services": return leadServices(l).join("; ");
+    case "socials": return leadSocials(l).join("; ");
     case "status": return human(l.status);
     case "address": return l.address;
     case "city": return l.city;
@@ -93,3 +117,25 @@ export async function exportCsv(workspaceId: string, req: ExportRequest) {
   // BOM so Excel opens UTF-8 (accents, dashes) correctly.
   return { csv: "﻿" + [header.map(csvCell).join(","), ...lines].join("\r\n") + "\r\n", count: leads.length };
 }
+
+/** Data for one visual lead card (the PNG "lead cards" export, drawn in the browser). */
+export function leadCard(l: ExportLead) {
+  return {
+    name: l.name,
+    type: getPlaybook(l.businessType).label,
+    category: l.category,
+    city: l.city,
+    description: leadDescription(l),
+    services: leadServices(l).slice(0, 6),
+    address: l.address,
+    phone: l.phone,
+    email: l.email,
+    website: l.website,
+    rating: l.rating,
+    reviewCount: l.reviewCount,
+    websiteLabel: human(l.websiteClass ?? l.websiteStatus),
+    opportunityScore: l.opportunityScore,
+    status: human(l.status),
+  };
+}
+export type LeadCard = ReturnType<typeof leadCard>;

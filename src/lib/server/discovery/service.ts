@@ -6,6 +6,7 @@ import { logActivity, notify } from "../activity";
 import { classifyBusinessType } from "../intel/classify-type";
 import { upsertBusiness } from "../leads";
 import { markIntegration, resolveIntegrationKey } from "../workspace";
+import { brandKey, smallBusinessCheck } from "./small-business";
 import { geocodeWithPlaces, placeToBusiness, searchPlaces } from "./places";
 import type { JobContext } from "../jobs/queue";
 
@@ -19,6 +20,7 @@ export const DiscoveryInput = z.object({
   maxRating: z.coerce.number().min(0).max(5).default(5),
   website: z.enum(["any", "has", "none"]).default("any"),
   openStatus: z.enum(["operational", "any"]).default("operational"),
+  smallOnly: z.boolean().default(true),
   autoAudit: z.boolean().default(true),
   campaignId: z.string().nullable().optional(),
 }).refine((v) => v.category || v.searchTerms, { message: "Enter a business category or search terms", path: ["category"] })
@@ -36,7 +38,8 @@ export function buildQueries(i: DiscoveryInputT) {
 export async function runDiscovery(workspaceId: string, input: DiscoveryInputT, ctx: JobContext, userId: string | null) {
   const key = await resolveIntegrationKey(workspaceId, "GOOGLE_PLACES");
   if (!key) throw new AppError("NOT_CONFIGURED", "Connect the Google Places API in Settings → Integrations to discover businesses.");
-  const stats = { found: 0, created: 0, duplicates: 0, filtered: 0, queries: 0 };
+  const stats = { found: 0, created: 0, duplicates: 0, filtered: 0, notSmall: 0, queries: 0 };
+  const brands = new Map<string, Set<string>>();
   const createdIds: string[] = [];
   let center: { latitude: number; longitude: number } | null = null;
   try {
@@ -61,6 +64,14 @@ export async function runDiscovery(workspaceId: string, input: DiscoveryInputT, 
           if (input.maxRating < 5 && b.rating == null) { stats.filtered++; continue; }
           if (input.website === "has" && !b.website) { stats.filtered++; continue; }
           if (input.website === "none" && b.website) { stats.filtered++; continue; }
+          if (input.smallOnly) {
+            // Several locations with the same name in one search = a chain, not an independent business.
+            const brand = brandKey(b.name);
+            const places = brands.get(brand) ?? new Set<string>();
+            places.add(b.sourceId);
+            brands.set(brand, places);
+            if (!smallBusinessCheck(b).ok || (brand.length > 2 && places.size > 1)) { stats.notSmall++; continue; }
+          }
           const res = await upsertBusiness(workspaceId, b, userId);
           stats.found++;
           if (res.created) {
@@ -88,5 +99,5 @@ export async function runDiscovery(workspaceId: string, input: DiscoveryInputT, 
     await enqueueJob({ workspaceId, type: "WEBSITE_AUDIT", label: `Analyse ${createdIds.length} new businesses`, payload: { businessIds: createdIds }, createdById: userId });
   }
   const note = stats.found < input.limit ? (stats.queries === 1 ? " Google returns at most 60 results per query — add comma-separated search terms or narrower locations to find more." : "") : "";
-  return { ...stats, createdIds, message: `Found ${stats.found} businesses: ${stats.created} new, ${stats.duplicates} already in your workspace${stats.filtered ? `, ${stats.filtered} excluded by filters` : ""}.${note}` };
+  return { ...stats, createdIds, message: `Found ${stats.found} businesses: ${stats.created} new, ${stats.duplicates} already in your workspace${stats.filtered ? `, ${stats.filtered} excluded by filters` : ""}${stats.notSmall ? `, ${stats.notSmall} skipped as chains, landmarks or large businesses` : ""}.${note}` };
 }

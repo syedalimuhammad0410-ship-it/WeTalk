@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { exportCsv, loadExportLeads } from "@/lib/server/export";
 import { buildLeadsPdf, DEFAULT_PDF_SECTIONS } from "@/lib/server/export-pdf";
+import { buildLeadsXlsx } from "@/lib/server/export-xlsx";
+import ExcelJS from "exceljs";
 import { makeWorkspace } from "../helpers";
 
 async function seed() {
   const { ws } = await makeWorkspace();
   const a = await db.business.create({ data: { workspaceId: ws.id, name: "Maple Dental — Café & Spa", normalizedName: "maple dental", city: "Mississauga", phone: "905-555-0100", email: "hi@maple.test", website: "https://maple.test", websiteStatus: "WEBSITE_FOUND", websiteClass: "OUTDATED", websiteScore: 38, opportunityScore: 82, businessType: "dental" } });
   await db.business.create({ data: { workspaceId: ws.id, name: "=SUM(A1)", normalizedName: "sum", city: "Toronto", websiteStatus: "NO_WEBSITE", opportunityScore: 60 } });
-  const audit = await db.websiteAudit.create({ data: { workspaceId: ws.id, businessId: a.id, status: "COMPLETED", summary: "Outdated site without online booking.", overallScore: 38 } });
+  const audit = await db.websiteAudit.create({ data: { workspaceId: ws.id, businessId: a.id, status: "COMPLETED", summary: "Outdated site without online booking.", overallScore: 38, extracted: { metaDescription: null, ai: { summary: "Family dental clinic offering check-ups, cleanings and implants.", services: [{ name: "Cleanings", evidence: "x" }, { name: "Implants", evidence: "y" }], differentiators: [], tagline: null } } } });
   await db.websiteFinding.create({ data: { auditId: audit.id, category: "conversion", severity: "HIGH", kind: "issue", code: "conv.booking", title: "No online booking", detail: "Patients must call to book." } });
   await db.opportunity.create({ data: { workspaceId: ws.id, businessId: a.id, auditId: audit.id, score: 82, businessType: "dental", summary: "High", reasons: [{ label: "Outdated website", points: 30, kind: "VERIFIED" }], recommendedFeatures: [{ name: "Online booking", priority: "essential", status: "missing" }] } });
   await db.note.create({ data: { workspaceId: ws.id, businessId: a.id, body: "Owner prefers email → follow up Tuesday ✓" } });
@@ -54,5 +56,33 @@ describe("custom lead export", () => {
     expect(full).toContain("(https://biz1.test)"); // bare domains become https links
     expect(full).toContain("(mailto:hi@maple.test)");
     expect(full).toMatch(/\/leads\/[\w-]+\)/); // each lead links back to WebScout
+  });
+
+  it("describes what each business does, from its website or Google", async () => {
+    const { ws } = await seed();
+    const { csv } = await exportCsv(ws.id, { columns: ["name", "description", "services"] });
+    expect(csv).toContain(`"Family dental clinic offering check-ups, cleanings and implants.",Cleanings; Implants`);
+    expect(csv).toContain("'=SUM(A1),General local business in Toronto.,"); // no audit: falls back to what Google knows
+  });
+
+  it("builds a formatted Excel workbook with links, profiles and a summary", async () => {
+    const { ws } = await seed();
+    const { leads } = await loadExportLeads(ws.id, { columns: [] }, 300);
+    const buf = await buildLeadsXlsx({ leads, columns: ["name", "description", "phone", "email", "website", "opportunityScore"], agency: "Naqvi Helpers", title: "Toronto leads", scope: "All leads" });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["Leads", "Lead profiles", "Summary"]);
+    const sheet = wb.getWorksheet("Leads")!;
+    expect(sheet.getCell("A1").value).toBe("Toronto leads");
+    expect(sheet.getCell("B4").value).toBe("What they do");
+    expect(sheet.getCell("B5").value).toBe("Family dental clinic offering check-ups, cleanings and implants.");
+    expect(sheet.getCell("D5").value).toMatchObject({ text: "hi@maple.test", hyperlink: "mailto:hi@maple.test" });
+    expect(sheet.getCell("E5").value).toMatchObject({ hyperlink: "https://maple.test" });
+    expect(sheet.getCell("F5").value).toBe(82);
+    const profiles = wb.getWorksheet("Lead profiles")!;
+    const text: string[] = [];
+    profiles.eachRow((r) => r.eachCell((c) => text.push(typeof c.value === "object" && c.value && "text" in c.value ? String(c.value.text) : String(c.value))));
+    expect(text).toContain("Cleanings, Implants");
+    expect(text).toContain("905-555-0100");
   });
 });

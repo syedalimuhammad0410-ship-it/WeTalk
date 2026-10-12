@@ -2,6 +2,8 @@
 export const EXPORT_COLUMNS = [
   { id: "name", label: "Business", group: "Business" },
   { id: "type", label: "Business type", group: "Business" },
+  { id: "description", label: "What they do", group: "Business" },
+  { id: "services", label: "Services offered", group: "Business" },
   { id: "category", label: "Google category", group: "Business" },
   { id: "status", label: "Lead status", group: "Business" },
   { id: "rating", label: "Google rating", group: "Business" },
@@ -14,6 +16,7 @@ export const EXPORT_COLUMNS = [
   { id: "region", label: "Province / state", group: "Contact" },
   { id: "postalCode", label: "Postal code", group: "Contact" },
   { id: "googleMapsUrl", label: "Google Maps link", group: "Contact" },
+  { id: "socials", label: "Social media", group: "Contact" },
   { id: "website", label: "Website", group: "Website & audit" },
   { id: "websiteStatus", label: "Website status", group: "Website & audit" },
   { id: "websiteClass", label: "Website assessment", group: "Website & audit" },
@@ -41,8 +44,8 @@ export const EXPORT_COLUMNS = [
 export type ExportColumnId = (typeof EXPORT_COLUMNS)[number]["id"];
 
 export const EXPORT_PRESETS: { id: string; label: string; columns: ExportColumnId[] }[] = [
-  { id: "contact", label: "Contact list", columns: ["name", "type", "phone", "email", "address", "city", "website", "status"] },
-  { id: "sales", label: "Sales follow-up", columns: ["name", "type", "city", "phone", "email", "website", "websiteStatus", "opportunityScore", "opportunityReasons", "responseStatus", "lastContacted", "lastIntent", "status", "assignedTo", "latestNote"] },
+  { id: "contact", label: "Contact list", columns: ["name", "type", "description", "services", "phone", "email", "address", "city", "website", "googleMapsUrl", "rating", "reviewCount", "status"] },
+  { id: "sales", label: "Sales follow-up", columns: ["name", "type", "description", "city", "phone", "email", "website", "websiteStatus", "opportunityScore", "opportunityReasons", "responseStatus", "lastContacted", "lastIntent", "status", "assignedTo", "latestNote"] },
   { id: "audit", label: "Website audit", columns: ["name", "type", "city", "website", "websiteStatus", "websiteClass", "websiteScore", "auditSummary", "topIssues", "missingFeatures", "opportunityScore"] },
   { id: "all", label: "Everything", columns: EXPORT_COLUMNS.map((c) => c.id) },
 ];

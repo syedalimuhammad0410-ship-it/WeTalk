@@ -1,15 +1,23 @@
 "use client";
 import { useEffect, useState } from "react";
-import { FileSpreadsheet, FileText, Download } from "lucide-react";
+import { FileSpreadsheet, FileText, Download, Sheet, Image as ImageIcon } from "lucide-react";
 import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Checkbox, Field, Input } from "../ui/form";
 import { useToast } from "../ui/toast";
 import { cn } from "@/lib/utils";
 import { EXPORT_COLUMNS, EXPORT_PRESETS, type ExportColumnId } from "@/lib/export-columns";
+import { renderLeadCards, type LeadCardsPayload } from "./lead-cards-image";
 
 type Scope = "filters" | "selected" | "all";
-type Format = "csv" | "pdf";
+type Format = "csv" | "xlsx" | "pdf" | "image";
+const FORMATS = [
+  ["xlsx", Sheet, "Excel (.xlsx)", "Formatted spreadsheet: coloured scores, clickable links, a profile for each business and a summary sheet."],
+  ["csv", FileSpreadsheet, "CSV", "Plain spreadsheet file for importing into other tools. Pick your columns."],
+  ["pdf", FileText, "PDF report", "Printable report with a summary and a detailed section per lead (up to 300 leads)."],
+  ["image", ImageIcon, "Image (PNG)", "Lead cards: what they do, services, address, phone, email and website (up to 120 leads)."],
+] as const;
+const LABEL: Record<Format, string> = { csv: "CSV", xlsx: "Excel", pdf: "PDF", image: "image" };
 const SECTIONS = [
   { id: "summary", label: "Summary page", hint: "Key numbers, top opportunities, breakdowns by status, city and type" },
   { id: "contact", label: "Contact details", hint: "Phone, email, website, address, rating, hours" },
@@ -26,7 +34,7 @@ export function ExportDialog({ open, onClose, filters, selectedIds = [], matchin
   const toast = useToast();
   const hasFilters = Object.keys(filters).some((k) => k !== "sort");
   const [scope, setScope] = useState<Scope>(selectedIds.length ? "selected" : hasFilters ? "filters" : "all");
-  const [format, setFormat] = useState<Format>("csv");
+  const [format, setFormat] = useState<Format>("xlsx");
   const [columns, setColumns] = useState<ExportColumnId[]>(EXPORT_PRESETS.find((p) => p.id === "sales")!.columns);
   const [sections, setSections] = useState<Record<SectionId, boolean>>({ summary: true, contact: true, audit: true, opportunity: true, outreach: true, notes: true });
   const [title, setTitle] = useState("Lead report");
@@ -45,7 +53,7 @@ export function ExportDialog({ open, onClose, filters, selectedIds = [], matchin
   }, [open]);
 
   const toggle = (id: ExportColumnId) => setColumns((c) => (c.includes(id) ? c.filter((x) => x !== id) : EXPORT_COLUMNS.map((x) => x.id).filter((x) => x === id || c.includes(x))));
-  const canDownload = format === "pdf" ? Object.values(sections).some(Boolean) : columns.length > 0;
+  const canDownload = format === "pdf" ? Object.values(sections).some(Boolean) : format === "image" ? true : columns.length > 0;
 
   async function download() {
     setBusy(true);
@@ -60,15 +68,24 @@ export function ExportDialog({ open, onClose, filters, selectedIds = [], matchin
         const err = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
         throw new Error(err?.error?.message ?? `Export failed (${res.status})`);
       }
-      const blob = await res.blob();
-      const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? (format === "pdf" ? "lead-report.pdf" : "leads.csv");
-      const url = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement("a"), { href: url, download: name });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
-      toast.success("Export ready", `${name} downloaded.`);
+      const save = (blob: Blob, name: string) => {
+        const url = URL.createObjectURL(blob);
+        const a = Object.assign(document.createElement("a"), { href: url, download: name });
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      };
+      if (format === "image") {
+        const images = await renderLeadCards((await res.json()) as LeadCardsPayload);
+        const stamp = new Date().toISOString().slice(0, 10);
+        images.forEach((b, i) => save(b, `webscout-lead-cards-${stamp}${images.length > 1 ? `-${i + 1}` : ""}.png`));
+        toast.success("Export ready", `${images.length} image${images.length > 1 ? "s" : ""} downloaded.`);
+      } else {
+        const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? `leads.${format}`;
+        save(await res.blob(), name);
+        toast.success("Export ready", `${name} downloaded.`);
+      }
       onClose();
     } catch (e) {
       toast.error("Export failed", (e as Error).message);
@@ -85,7 +102,7 @@ export function ExportDialog({ open, onClose, filters, selectedIds = [], matchin
 
   return (
     <Dialog open={open} onClose={onClose} size="lg" title="Export leads" description="Choose which leads, the format, and exactly what to include."
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={download} loading={busy} loadingText="Preparing…" disabled={!canDownload}><Download className="h-4 w-4" /> Download {format === "pdf" ? "PDF" : "CSV"}</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={download} loading={busy} loadingText="Preparing…" disabled={!canDownload}><Download className="h-4 w-4" /> Download {LABEL[format]}</Button></>}>
       <div className="space-y-5">
         <section>
           <h3 className="mb-2 text-sm font-semibold">Which leads</h3>
@@ -98,7 +115,7 @@ export function ExportDialog({ open, onClose, filters, selectedIds = [], matchin
         <section>
           <h3 className="mb-2 text-sm font-semibold">Format</h3>
           <div className="grid gap-2 sm:grid-cols-2">
-            {([["csv", FileSpreadsheet, "Spreadsheet (CSV)", "Opens in Excel, Google Sheets or Numbers. Pick your columns."], ["pdf", FileText, "PDF report", "A detailed, printable report with a summary and a page section per lead (up to 300 leads)."]] as const).map(([id, Icon, label, hint]) => (
+            {FORMATS.map(([id, Icon, label, hint]) => (
               <button key={id} type="button" onClick={() => setFormat(id)} aria-pressed={format === id} className={cn("flex gap-3 rounded-xl border p-3 text-left", format === id ? "border-accent bg-accent/5" : "border-border hover:bg-subtle/60")}>
                 <Icon className={cn("mt-0.5 h-5 w-5 shrink-0", format === id ? "text-accent" : "text-muted")} />
                 <span><span className="block text-sm font-medium">{label}</span><span className="block text-xs text-muted">{hint}</span></span>
@@ -106,8 +123,9 @@ export function ExportDialog({ open, onClose, filters, selectedIds = [], matchin
             ))}
           </div>
         </section>
-        {format === "csv" ? (
+        {format === "csv" || format === "xlsx" ? (
           <section>
+            {format === "xlsx" && <div className="mb-3"><Field label="Title" htmlFor="xt"><Input id="xt" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} /></Field></div>}
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold">Columns ({columns.length})</h3>
               <div className="flex flex-wrap gap-1.5">
@@ -125,6 +143,11 @@ export function ExportDialog({ open, onClose, filters, selectedIds = [], matchin
                 </fieldset>
               ))}
             </div>
+          </section>
+        ) : format === "image" ? (
+          <section className="space-y-3">
+            <Field label="Title" htmlFor="rt"><Input id="rt" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} /></Field>
+            <p className="text-xs text-muted">Each lead becomes a card showing what the business does, the services listed on their website, their address, phone, email, website, Google rating and opportunity score. Up to 40 cards per image; leads are ordered by opportunity score.</p>
           </section>
         ) : (
           <section className="space-y-3">
