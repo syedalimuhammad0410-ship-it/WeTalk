@@ -13,7 +13,7 @@ export const POST = api({ permission: "leads.edit" }, async (req, ctx, p) => {
   ]);
   if (!conv || !lead) throw new AppError("NOT_FOUND", "Conversation or lead not found.");
   await db.$transaction([
-    db.conversation.update({ where: { id: conv.id }, data: { businessId: lead.id, reviewReason: conv.reviewReason === "Sender could not be matched to a lead" ? null : conv.reviewReason } }),
+    db.conversation.update({ where: { id: conv.id }, data: { businessId: lead.id, category: "lead_reply", reviewReason: conv.reviewReason === "Sender could not be matched to a lead" ? null : conv.reviewReason } }),
     db.emailMessage.updateMany({ where: { conversationId: conv.id }, data: { businessId: lead.id } }),
     db.aiResponseDraft.updateMany({ where: { conversationId: conv.id }, data: { businessId: lead.id } }),
   ]);

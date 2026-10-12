@@ -13,6 +13,7 @@ import { LEAD_STATUSES, LEAD_STATUS_META, WEBSITE_CLASS_META, WEBSITE_STATUS_MET
 import { LeadsTable, type LeadRow } from "./leads-table";
 import { PipelineBoard, type Column } from "./pipeline-board";
 import { AddLeadDialog, ImportDialog } from "./lead-dialogs";
+import { ExportDialog } from "./export-dialog";
 
 export type Options = {
   tags: { id: string; name: string }[];
@@ -57,7 +58,8 @@ export function LeadsView({ view, data, columns, options, perms, openAdd }: { vi
   }, [q]);
 
   const activeFilters = useMemo(() => FILTER_KEYS.filter((k) => k !== "q" && k !== "sort" && sp.get(k)), [sp]);
-  const exportHref = `/api/leads/export?${new URLSearchParams(Object.fromEntries(FILTER_KEYS.filter((k) => sp.get(k)).map((k) => [k, sp.get(k)!]))).toString()}`;
+  const exportFilters = useMemo(() => Object.fromEntries(FILTER_KEYS.filter((k) => sp.get(k)).map((k) => [k, sp.get(k)!])), [sp]);
+  const [exporting, setExporting] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -86,7 +88,7 @@ export function LeadsView({ view, data, columns, options, perms, openAdd }: { vi
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
-          {perms.exp && <a href={exportHref} className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium shadow-sm hover:bg-subtle"><Download className="h-4 w-4" /> Export</a>}
+          {perms.exp && <Button variant="outline" onClick={() => setExporting(true)}><Download className="h-4 w-4" /> Export</Button>}
           {perms.edit && <Button variant="outline" onClick={() => setImporting(true)}><Upload className="h-4 w-4" /> Import</Button>}
           {perms.edit && <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add lead</Button>}
         </div>
@@ -117,6 +119,7 @@ export function LeadsView({ view, data, columns, options, perms, openAdd }: { vi
       </div>
       <AddLeadDialog open={adding} onClose={() => setAdding(false)} onCreated={(id) => { setAdding(false); toast.success("Lead added"); router.push(`/leads/${id}`); }} />
       <ImportDialog open={importing} onClose={() => setImporting(false)} onDone={() => { setImporting(false); router.refresh(); }} />
+      {perms.exp && <ExportDialog open={exporting} onClose={() => setExporting(false)} filters={exportFilters} matching={data?.total} />}
       <span className="sr-only" aria-live="polite">{pending ? "Loading leads…" : ""}</span>
     </div>
   );

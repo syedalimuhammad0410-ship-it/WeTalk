@@ -713,6 +713,8 @@ model Conversation {
   /// Not related to the agency (spam, newsletters, notifications…): kept out of the inbox sections.
   filtered         Boolean           @default(false)
   filterReason     String?
+  /// Email type for inbox filters (verification_code, confirmation, newsletter_promo, lead_reply, …).
+  category         String?
   isHot            Boolean           @default(false)
   assignedToId     String?
   createdAt        DateTime          @default(now())
@@ -722,6 +724,7 @@ model Conversation {
 
   @@index([workspaceId, lastMessageAt])
   @@index([workspaceId, filtered, lastMessageAt])
+  @@index([workspaceId, category])
   @@index([workspaceId, providerThreadId])
   @@index([workspaceId, counterpartEmail])
   @@index([businessId])

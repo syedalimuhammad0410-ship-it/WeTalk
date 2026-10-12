@@ -11,6 +11,7 @@ import { apiFetch } from "@/lib/client";
 import { kickJobs } from "../shell/job-tray";
 import { LEAD_STATUSES, LEAD_STATUS_META } from "@/lib/constants";
 import type { Options, Perms } from "./leads-view";
+import { ExportDialog } from "./export-dialog";
 
 type Mode = null | "assign" | "tag" | "status" | "campaign" | "emails" | "send" | "delete";
 
@@ -18,6 +19,7 @@ export function BulkBar({ ids, options, perms, onDone, onClear }: { ids: string[
   const router = useRouter();
   const toast = useToast();
   const [mode, setMode] = useState<Mode>(null);
+  const [exporting, setExporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [value, setValue] = useState("");
   const [preview, setPreview] = useState<{ sendable: number; missingDraftsOrBlocked: number; recipients: string[] } | null>(null);
@@ -63,7 +65,7 @@ export function BulkBar({ ids, options, perms, onDone, onClear }: { ids: string[
               {perms.edit && <MenuItem icon={Megaphone} label="Add to campaign" onClick={() => setMode("campaign")} />}
               {perms.edit && <MenuItem icon={Archive} label="Archive" onClick={() => run({ action: "archive", archived: true }, "Archived")} />}
               {ids.length >= 2 && ids.length <= 4 && <MenuItem icon={GitCompare} label="Compare" onClick={() => router.push(`/leads/compare?ids=${ids.join(",")}`)} />}
-              {perms.exp && <MenuItem icon={Download} label="Export selected" onClick={() => { window.location.href = `/api/leads/export?ids=${ids.join(",")}`; }} />}
+              {perms.exp && <MenuItem icon={Download} label="Export selected…" onClick={() => setExporting(true)} />}
               {perms.del && <MenuItem icon={Trash2} label="Delete…" danger onClick={() => setMode("delete")} />}
             </div>
           )}
@@ -108,6 +110,7 @@ export function BulkBar({ ids, options, perms, onDone, onClear }: { ids: string[
       <ConfirmDialog open={mode === "delete"} onClose={close} title={`Delete ${ids.length} leads?`} confirmLabel="Delete permanently" loading={busy} confirmDisabled={confirmText !== String(ids.length)} onConfirm={() => run({ action: "delete", confirmCount: ids.length }, "Leads deleted")} description="This permanently deletes the selected leads with their audits, prompts, conversations and notes. Do-not-contact suppressions are kept. This cannot be undone.">
         <Field label={`Type ${ids.length} to confirm`} htmlFor="b-del" className="mt-3"><Input id="b-del" inputMode="numeric" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} /></Field>
       </ConfirmDialog>
+      {perms.exp && <ExportDialog open={exporting} onClose={() => setExporting(false)} filters={{}} selectedIds={ids} />}
     </>
   );
 }

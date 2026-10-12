@@ -4,6 +4,7 @@ import type { CompanyProfile } from "@prisma/client";
 import { db } from "../../db";
 import { describeError } from "../errors";
 import type { AiProvider } from "../ai/client";
+import type { EmailCategory } from "../../constants";
 
 /**
  * Decides whether an inbound email that could NOT be matched to a lead or
@@ -36,6 +37,32 @@ export const RelevanceSchema = z.object({
   confidence: z.number().int().min(0).max(100),
   reason: z.string().describe("One short sentence citing the text clues used"),
 });
+
+const CATEGORY_RULES: [EmailCategory, RegExp][] = [
+  ["verification_code", /\b(verification code|security code|one-time (?:code|passcode|password)|\botp\b|2fa|two-factor|login code|sign-?in code|your code is|is your (?:verification |security |login )?code|confirmation code)\b/i],
+  ["security_alert", /\b(password reset|reset your password|new sign-?in|sign-?in attempt|security alert|suspicious (?:activity|sign-?in|login)|unusual (?:activity|sign-?in)|new device|account (?:locked|compromised))\b/i],
+  ["confirmation", /\b(confirm your (?:email|e-mail|account|subscription|registration|address)|please confirm|verify your (?:email|e-mail|account|address)|activate your account|email confirmation|thanks for (?:signing up|registering|subscribing)|welcome to\b|(?:booking|appointment|reservation|registration) (?:is )?confirm(?:ed|ation))\b/i],
+  ["receipt_order", /\b(receipt|invoice (?:#|no\.?|number)|order (?:#|no\.?|number|confirmation|confirmed|update)|your order|has shipped|out for delivery|delivered|payment (?:received|confirmation|successful)|subscription (?:renewed|renewal))\b/i],
+];
+
+/** Picks the inbox-filter category for an email. Lead-linked conversations are "lead_reply". */
+export function categorizeEmail(msg: RelevanceInput, opts: { linkedToLead?: boolean; relevance?: Relevance | null } = {}): EmailCategory {
+  const hay = `${msg.subject}\n${msg.text.slice(0, 4000)}`;
+  if (opts.linkedToLead) return "lead_reply";
+  for (const [cat, re] of CATEGORY_RULES) if (re.test(hay)) return cat;
+  if (msg.isBulk || /\b(newsletter|unsubscribe|\d{1,2}% off|sale ends|limited[- ]time offer|webinar)\b/i.test(hay)) return "newsletter_promo";
+  if (AUTOMATED_SENDER.test(msg.from) || msg.category === "CATEGORY_UPDATES") return "notification";
+  const r = opts.relevance;
+  if (r) {
+    const map: Record<string, EmailCategory> = {
+      business_reply: "lead_reply", mentions_agency: "enquiry", new_enquiry: "enquiry", client_or_vendor: "enquiry", cold_pitch_to_us: "cold_pitch",
+      newsletter_or_promo: "newsletter_promo", notification_or_receipt: "notification", personal: "personal", phishing_or_scam: "spam",
+    };
+    if (map[r.category]) return map[r.category]!;
+    if (r.method === "prior_contact") return "lead_reply";
+  }
+  return "other";
+}
 
 export async function priorContact(workspaceId: string, from: string): Promise<string | null> {
   const email = from.toLowerCase();
@@ -114,9 +141,12 @@ export async function cleanupInbox(workspaceId: string, onProgress?: (p: { total
   for (const [i, c] of candidates.entries()) {
     const m = c.messages[0];
     if (m) {
-      const r = await assessRelevance(workspaceId, { from: c.counterpartEmail, subject: m.subject, text: m.bodyText }, company, ai);
-      if (!r.related) {
-        await db.conversation.update({ where: { id: c.id }, data: { filtered: true, filterReason: r.reason.slice(0, 300), isOpen: false, unread: false, needsHumanReview: false } });
+      const input = { from: c.counterpartEmail, subject: m.subject, text: m.bodyText };
+      const r = await assessRelevance(workspaceId, input, company, ai);
+      const category = categorizeEmail(input, { relevance: r });
+      if (r.related) await db.conversation.update({ where: { id: c.id }, data: { category } });
+      else {
+        await db.conversation.update({ where: { id: c.id }, data: { category, filtered: true, filterReason: r.reason.slice(0, 300), isOpen: false, unread: false, needsHumanReview: false } });
         await db.aiResponseDraft.updateMany({ where: { conversationId: c.id, status: "PENDING" }, data: { status: "SUPERSEDED" } });
         await db.emailMessage.update({ where: { id: m.id }, data: { analysis: { ...((m.analysis as object) ?? {}), relevance: r } } });
         filtered++;
@@ -124,5 +154,15 @@ export async function cleanupInbox(workspaceId: string, onProgress?: (p: { total
     }
     await onProgress?.({ total: candidates.length, processed: i + 1, message: `Checked ${i + 1} of ${candidates.length} · ${filtered} filtered` });
   }
-  return { checked: candidates.length, filtered, message: `Checked ${candidates.length} unmatched conversation${candidates.length === 1 ? "" : "s"}; ${filtered} moved to Filtered.` };
+  // Give every other conversation a category for the inbox filters (rules only, no AI cost).
+  const uncategorised = await db.conversation.findMany({
+    where: { workspaceId, category: null, messages: { some: { direction: "INBOUND" } } },
+    take: 2000,
+    select: { id: true, businessId: true, counterpartEmail: true, messages: { where: { direction: "INBOUND" }, orderBy: { createdAt: "desc" }, take: 1, select: { subject: true, bodyText: true } } },
+  });
+  for (const c of uncategorised) {
+    const m = c.messages[0];
+    if (m) await db.conversation.update({ where: { id: c.id }, data: { category: categorizeEmail({ from: c.counterpartEmail, subject: m.subject, text: m.bodyText }, { linkedToLead: Boolean(c.businessId) }) } });
+  }
+  return { checked: candidates.length, filtered, categorised: uncategorised.length, message: `Checked ${candidates.length} unmatched conversation${candidates.length === 1 ? "" : "s"}; ${filtered} moved to Filtered; ${uncategorised.length} sorted into categories.` };
 }

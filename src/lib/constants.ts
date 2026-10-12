@@ -134,3 +134,20 @@ export const INBOX_SECTIONS = [
   { id: "filtered", label: "Filtered (not related)" },
 ] as const;
 export type InboxSection = (typeof INBOX_SECTIONS)[number]["id"];
+
+/** Email types used by the inbox filters (Conversation.category). */
+export const EMAIL_CATEGORIES = [
+  { id: "lead_reply", label: "Replies from leads", tone: "green" },
+  { id: "enquiry", label: "New enquiries", tone: "indigo" },
+  { id: "verification_code", label: "Verification codes", tone: "zinc" },
+  { id: "confirmation", label: "Confirmation emails", tone: "zinc" },
+  { id: "security_alert", label: "Password & security alerts", tone: "zinc" },
+  { id: "receipt_order", label: "Receipts & orders", tone: "zinc" },
+  { id: "newsletter_promo", label: "Newsletters & promotions", tone: "zinc" },
+  { id: "notification", label: "Notifications", tone: "zinc" },
+  { id: "cold_pitch", label: "Sales pitches to you", tone: "amber" },
+  { id: "personal", label: "Personal", tone: "slate" },
+  { id: "spam", label: "Spam & scams", tone: "red" },
+  { id: "other", label: "Other", tone: "slate" },
+] as const;
+export type EmailCategory = (typeof EMAIL_CATEGORIES)[number]["id"];

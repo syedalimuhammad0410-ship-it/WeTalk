@@ -6,7 +6,7 @@ import { db } from "../../db";
 import { AppError } from "../errors";
 import { markIntegration, resolveIntegrationKey } from "../workspace";
 import { env } from "../env";
-import { GeminiProvider, resolveGeminiModel } from "./gemini";
+import { GeminiProvider, resolveGeminiModels } from "./gemini";
 
 /**
  * Thin, testable abstraction over the AI providers (Anthropic Claude or Google
@@ -49,8 +49,8 @@ export async function getAi(workspaceId: string): Promise<AiProvider | null> {
   }
   const gemini = await resolveIntegrationKey(workspaceId, "GEMINI");
   if (gemini) {
-    const model = await resolveGeminiModel(gemini.key, env.geminiModel() || (settings?.aiModel?.startsWith("gemini") ? settings.aiModel : null));
-    return new GeminiAiProvider(workspaceId, gemini.key, model, gemini.source);
+    const models = await resolveGeminiModels(gemini.key, env.geminiModel() || (settings?.aiModel?.startsWith("gemini") ? settings.aiModel : null));
+    return new GeminiAiProvider(workspaceId, gemini.key, models, gemini.source);
   }
   return null;
 }
@@ -67,38 +67,44 @@ class GeminiAiProvider implements AiProvider {
   constructor(
     private workspaceId: string,
     apiKey: string,
-    readonly model: string,
+    models: string[],
     private keySource: "workspace" | "server",
   ) {
-    this.client = new GeminiProvider(apiKey, model);
+    this.client = new GeminiProvider(apiKey, models);
+  }
+
+  /** The model that served the latest request (it changes when one model's free quota runs out). */
+  get model() {
+    return this.client.model;
   }
 
   json<S extends z.ZodType>(req: AiJsonRequest<S>): Promise<z.infer<S>> {
-    return trackUsage(this.workspaceId, "GEMINI", this.model, this.keySource, req.feature, () => this.client.json(req));
+    return trackUsage(this.workspaceId, "GEMINI", () => this.model, this.keySource, req.feature, () => this.client.json(req));
   }
 
   text(req: AiTextRequest): Promise<string> {
-    return trackUsage(this.workspaceId, "GEMINI", this.model, this.keySource, req.feature, () => this.client.text(req));
+    return trackUsage(this.workspaceId, "GEMINI", () => this.model, this.keySource, req.feature, () => this.client.text(req));
   }
 }
 
 async function trackUsage<T>(
   workspaceId: string,
   provider: "ANTHROPIC" | "GEMINI",
-  model: string,
+  modelOf: string | (() => string),
   keySource: "workspace" | "server",
   feature: string,
   fn: () => Promise<{ value: T; usage: { input_tokens: number; output_tokens: number } }>,
   mapError: (e: unknown) => AppError = (e) => (e instanceof AppError ? e : new AppError("INTERNAL", `AI request failed: ${(e as Error)?.message ?? String(e)}`)),
 ): Promise<T> {
+  const model = () => (typeof modelOf === "string" ? modelOf : modelOf());
   try {
     const { value, usage } = await fn();
-    await db.aiUsage.create({ data: { workspaceId, feature, model, inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } });
+    await db.aiUsage.create({ data: { workspaceId, feature, model: model(), inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } });
     if (keySource === "workspace") await markIntegration(workspaceId, provider, true);
     return value;
   } catch (e) {
     const mapped = mapError(e);
-    await db.aiUsage.create({ data: { workspaceId, feature, model, success: false, error: mapped.message.slice(0, 500) } }).catch(() => {});
+    await db.aiUsage.create({ data: { workspaceId, feature, model: model(), success: false, error: mapped.message.slice(0, 500) } }).catch(() => {});
     if (mapped.code === "INVALID_CREDENTIALS" || mapped.code === "QUOTA_EXCEEDED") await markIntegration(workspaceId, provider, false, mapped.message);
     throw mapped;
   }

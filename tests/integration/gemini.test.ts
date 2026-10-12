@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as z from "zod";
 import { db } from "@/lib/db";
 import { getAi, setAiFactoryForTests } from "@/lib/server/ai/client";
-import { GeminiProvider, resolveGeminiModel, setGeminiFetchForTests, testGeminiKey } from "@/lib/server/ai/gemini";
+import { GeminiProvider, resolveGeminiModel, setGeminiFetchForTests, setGeminiRetryDelaysForTests, testGeminiKey } from "@/lib/server/ai/gemini";
 import { saveIntegrationKey } from "@/lib/server/workspace";
 import { makeWorkspace } from "../helpers";
 
@@ -62,8 +62,47 @@ describe("Google Gemini provider", () => {
   it("maps API errors to clear messages", async () => {
     fakeGemini(() => ({ status: 400, json: { error: { message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT" } } }));
     expect(await testGeminiKey("bad")).toEqual({ ok: false, error: expect.stringMatching(/rejected the Gemini API key/) });
-    fakeGemini(() => ({ status: 429, json: { error: { message: "You exceeded your current quota, please check your plan and billing details.", status: "RESOURCE_EXHAUSTED" } } }));
-    await expect(new GeminiProvider("k", "m").text({ feature: "t", system: "s", prompt: "p" })).rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
+  });
+
+  it("retries busy responses, waits out per-minute limits, and reports daily quota clearly", async () => {
+    setGeminiRetryDelaysForTests([1, 1, 1]);
+    try {
+      const busy = fakeGemini((_c, n) => (n < 3 ? { status: 503, json: { error: { message: "This model is currently experiencing high demand.", status: "UNAVAILABLE" } } } : { json: answer("ok after retry") }));
+      expect((await new GeminiProvider("k", "m").text({ feature: "t", system: "s", prompt: "p" })).value).toBe("ok after retry");
+      expect(busy).toHaveLength(3);
+
+      const perMinute = { error: { message: "You exceeded your current quota, please check your plan and billing details.", status: "RESOURCE_EXHAUSTED", details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerMinutePerProjectPerModel-FreeTier" }] }, { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "0.001s" }] } };
+      const minuteCalls = fakeGemini((_c, n) => (n === 1 ? { status: 429, json: perMinute } : { json: answer("ok after minute") }));
+      expect((await new GeminiProvider("k", "m").text({ feature: "t", system: "s", prompt: "p" })).value).toBe("ok after minute");
+      expect(minuteCalls).toHaveLength(2);
+      fakeGemini(() => ({ status: 429, json: perMinute }));
+      await expect(new GeminiProvider("k", "m").text({ feature: "t", system: "s", prompt: "p" })).rejects.toMatchObject({ code: "RATE_LIMITED" });
+
+      const daily = fakeGemini(() => ({ status: 429, json: { error: { message: "Quota exceeded", status: "RESOURCE_EXHAUSTED", details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }] } } }));
+      await expect(new GeminiProvider("k", "m").text({ feature: "t", system: "s", prompt: "p" })).rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
+      expect(daily).toHaveLength(1); // no pointless retries on a daily cap
+    } finally {
+      setGeminiRetryDelaysForTests(null);
+    }
+  });
+
+  it("switches to the next model when one model's daily free quota is used up, and remembers it", async () => {
+    const daily = { error: { message: "Quota exceeded", status: "RESOURCE_EXHAUSTED", details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }, { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "3600s" }] } };
+    const calls = fakeGemini((c) => (c.url.includes("/models/gemini-3.8-flash:") ? { status: 429, json: daily } : { json: answer("from the fallback model") }));
+    const p = new GeminiProvider("k-daily", ["gemini-3.8-flash", "gemini-3.7-flash"]);
+    expect((await p.text({ feature: "t", system: "s", prompt: "p" })).value).toBe("from the fallback model");
+    expect(p.model).toBe("gemini-3.7-flash");
+    expect(calls.map((c) => c.url.match(/models\/([^:]+)/)![1])).toEqual(["gemini-3.8-flash", "gemini-3.7-flash"]);
+    await new GeminiProvider("k-daily", ["gemini-3.8-flash", "gemini-3.7-flash"]).text({ feature: "t", system: "s", prompt: "p" });
+    expect(calls).toHaveLength(3); // the exhausted model is skipped for the rest of the day
+    fakeGemini(() => ({ status: 429, json: daily }));
+    await expect(new GeminiProvider("k-all", ["a", "b"]).text({ feature: "t", system: "s", prompt: "p" })).rejects.toThrow(/every available model/);
+  });
+
+  it("lists Flash models newest first, then Flash-Lite", async () => {
+    fakeGemini(() => ({ json: { models: ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3-flash-preview", "gemini-flash-latest", "gemini-2.5-pro"].map((n) => ({ name: `models/${n}`, supportedGenerationMethods: ["generateContent"] })) } }));
+    const { resolveGeminiModels } = await import("@/lib/server/ai/gemini");
+    expect(await resolveGeminiModels("key-list")).toEqual(["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
   });
 
   it("picks the newest stable Flash model the key can use", async () => {

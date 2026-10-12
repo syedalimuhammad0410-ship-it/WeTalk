@@ -34,3 +34,25 @@ The AI quotes prices only from **Settings → Company profile → Pricing** (wit
 - The AI never adds up totals, applies discounts or uses a figure that isn't in the price list. The commitment scanner compares amounts by value ($2500 = $2,500 = 2,500 CAD) and blocks any other figure.
 
 With pricing switched off, the AI explains what affects the price, asks scoping questions and offers a tailored quote.
+
+## WebScout AI assistant
+
+Click **Ask WebScout AI** at the bottom of the sidebar (on phones it's in the menu). The assistant uses the connected AI provider and has the same permissions as the person using it.
+
+- **Looks up:** workspace overview, lead search and lead details, inbox and conversations, background jobs, campaigns, your company profile and pricing.
+- **Runs directly:**
+  - change a lead's status, add notes, tag leads
+  - queue website audits or website prompts
+  - write an outreach email draft (never sent automatically)
+  - start a business search
+  - add leads to a campaign
+  - move emails in or out of Filtered, clean up the inbox
+- **Asks you to confirm first:** sending an email, approving and sending an AI reply, Do Not Contact.
+
+Email text from outside senders is marked as untrusted, so instructions inside an email are ignored.
+
+## Gemini free-tier limits
+
+Google's free tier gives each model a small daily allowance (about 20 requests per day per model at the time of writing) and a per-minute limit. WebScout uses the newest Gemini Flash model first. When that model's daily allowance runs out, it switches to the next Flash model, then to the Flash-Lite models, and remembers which ones are used up until they reset.
+
+Busy (503) and per-minute (429) responses are retried automatically. When every model's daily allowance is used up, you see a clear message. For regular use, turn on billing for the key at aistudio.google.com; the paid limits are far higher and cost little at this volume.

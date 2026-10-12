@@ -12,12 +12,14 @@ import { apiFetch } from "@/lib/client";
 
 import { INTENT_META } from "@/lib/constants";
 import { SectionTabs } from "./inbox-list";
+import { InboxFilters, type InboxFilterState } from "./inbox-filters";
 import { RelTime } from "@/components/ui/time";
 
-export function ReviewQueue({ items, counts, perms }: { items: any[]; counts: Record<string, number>; perms: { approve: boolean; send: boolean } }) {
+export function ReviewQueue({ items, counts, perms, filters, categoryCounts }: { items: any[]; counts: Record<string, number>; perms: { approve: boolean; send: boolean }; filters?: InboxFilterState; categoryCounts?: { byCategory: Record<string, number>; contacted: number } }) {
   return (
     <>
-      <SectionTabs section="review" counts={counts} />
+      <SectionTabs section="review" counts={counts} filters={filters} />
+      {categoryCounts && <InboxFilters section="review" filters={filters ?? {}} counts={categoryCounts} />}
       {items.length === 0 ? (
         <Card><EmptyState icon={<ShieldAlert className="h-5 w-5" />} title="Review queue is empty" description="Messages that involve legal matters, complaints, payments, low confidence or anything unusual will appear here for a human." /></Card>
       ) : (

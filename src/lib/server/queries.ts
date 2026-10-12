@@ -276,7 +276,7 @@ export async function globalSearch(workspaceId: string, q: string) {
   return { businesses, contacts, emails, campaigns, prompts, notes };
 }
 
-const csvCell = (v: unknown) => {
+export const csvCell = (v: unknown) => {
   if (v === null || v === undefined) return "";
   let s = v instanceof Date ? v.toISOString() : String(v);
   // Prevent CSV formula injection in spreadsheet apps.

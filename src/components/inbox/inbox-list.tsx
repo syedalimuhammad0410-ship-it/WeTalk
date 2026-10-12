@@ -7,21 +7,26 @@ import { Card, EmptyState, Badge } from "../ui/misc";
 import { ButtonLink } from "../ui/button";
 import { Tabs } from "../ui/tabs";
 import { cn } from "@/lib/utils";
-import { INBOX_SECTIONS, INTENT_META, LEAD_STATUS_META, type InboxSection, type LeadStatusT } from "@/lib/constants";
-import { RelTime } from "@/components/ui/time";
+import { EMAIL_CATEGORIES, INBOX_SECTIONS, INTENT_META, LEAD_STATUS_META, type InboxSection, type LeadStatusT } from "@/lib/constants";
 
-export function SectionTabs({ section, counts }: { section: InboxSection; counts: Record<string, number> }) {
+const CATEGORY_META: Record<string, { label: string; tone: (typeof EMAIL_CATEGORIES)[number]["tone"] }> = Object.fromEntries(EMAIL_CATEGORIES.map((c) => [c.id, { label: c.label, tone: c.tone }]));
+import { RelTime } from "@/components/ui/time";
+import { InboxFilters, inboxHref, type InboxFilterState } from "./inbox-filters";
+
+export function SectionTabs({ section, counts, filters = {} }: { section: InboxSection; counts: Record<string, number>; filters?: InboxFilterState }) {
   const router = useRouter();
-  return <Tabs<InboxSection> value={section} onChange={(s) => router.push(`/inbox?section=${s}`)} tabs={INBOX_SECTIONS.map((s) => ({ id: s.id, label: s.label, count: counts[s.id] }))} className="mb-4" />;
+  return <Tabs<InboxSection> value={section} onChange={(s) => router.push(inboxHref(s, filters))} tabs={INBOX_SECTIONS.map((s) => ({ id: s.id, label: s.label, count: counts[s.id] }))} className="mb-4" />;
 }
 
-export function InboxList({ section, counts, conversations, page }: { section: InboxSection; counts: Record<string, number>; conversations: any[]; page: number }) {
+export function InboxList({ section, counts, conversations, page, filters = {}, categoryCounts }: { section: InboxSection; counts: Record<string, number>; conversations: any[]; page: number; filters?: InboxFilterState; categoryCounts?: { byCategory: Record<string, number>; contacted: number } }) {
+  const filtered = Boolean(filters.cat || filters.contacted || filters.link || filters.intent || filters.days || filters.q);
   return (
     <>
-      <SectionTabs section={section} counts={counts} />
+      <SectionTabs section={section} counts={counts} filters={filters} />
+      {categoryCounts && <InboxFilters section={section} filters={filters} counts={categoryCounts} />}
       <Card className="overflow-hidden">
         {conversations.length === 0 ? (
-          <EmptyState icon={<Inbox className="h-5 w-5" />} title={section === "all" ? "No responses yet." : "Nothing here right now."} description={section === "all" ? "When businesses reply to your outreach, conversations show up here automatically." : undefined} action={section === "all" && <ButtonLink href="/campaigns">Start an Outreach Campaign</ButtonLink>} />
+          <EmptyState icon={<Inbox className="h-5 w-5" />} title={filtered ? "No emails match these filters." : section === "all" ? "No responses yet." : "Nothing here right now."} description={section === "all" ? "When businesses reply to your outreach, conversations show up here automatically." : undefined} action={section === "all" && <ButtonLink href="/campaigns">Start an Outreach Campaign</ButtonLink>} />
         ) : (
           <ul className="divide-y divide-border">
             {conversations.map((c) => {
@@ -42,6 +47,7 @@ export function InboxList({ section, counts, conversations, page }: { section: I
                       <div className="truncate text-[13px] text-muted">{c.subject} — {last?.direction === "OUTBOUND" ? "You: " : ""}{(last?.bodyText ?? "").slice(0, 140)}</div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                         {c.isHot && <Badge tone="orange"><Flame className="h-3 w-3" /> Hot</Badge>}
+                        {c.category && c.category !== "lead_reply" && CATEGORY_META[c.category] && <Badge tone={CATEGORY_META[c.category]!.tone}>{CATEGORY_META[c.category]!.label}</Badge>}
                         {c.lastIntent && <Badge tone={INTENT_META[c.lastIntent]?.tone}>{INTENT_META[c.lastIntent]?.label}{c.lastConfidence != null && ` · ${c.lastConfidence}%`}</Badge>}
                         {draft && <Badge tone="violet"><Sparkles className="h-3 w-3" /> AI draft ready</Badge>}
                         {c.needsHumanReview && <Badge tone="amber"><ShieldAlert className="h-3 w-3" /> Needs review</Badge>}
@@ -56,7 +62,7 @@ export function InboxList({ section, counts, conversations, page }: { section: I
             })}
           </ul>
         )}
-        {conversations.length === 50 && <div className="border-t border-border p-3 text-center text-sm"><Link className="text-accent" href={`/inbox?section=${section}&page=${page + 1}`}>Older conversations →</Link></div>}
+        {conversations.length === 50 && <div className="border-t border-border p-3 text-center text-sm"><Link className="text-accent" href={inboxHref(section, filters, page + 1)}>Older conversations →</Link></div>}
       </Card>
     </>
   );

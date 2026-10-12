@@ -6,7 +6,7 @@ import { cancelFollowUps } from "../followups";
 import { changeLeadStatus } from "../leads";
 import type { InboundEmail } from "./providers";
 import { providerFor } from "./providers";
-import { assessRelevance, type Relevance } from "./relevance";
+import { assessRelevance, categorizeEmail, type Relevance } from "./relevance";
 import { getAi } from "../ai/client";
 import { getSettings } from "../workspace";
 
@@ -113,14 +113,15 @@ export async function ingestInbound(account: EmailAccount, msg: InboundEmail, op
       analysis: { matchedBy, ...(relevance ? { relevance } : {}) },
     },
   });
+  const category = categorizeEmail(msg, { linkedToLead: Boolean(conversation.businessId), relevance });
   if (isFiltered) {
     // Kept for the record (Inbox → Filtered) but no lead updates, AI analysis or notifications.
-    await db.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: msg.receivedAt, lastDirection: "INBOUND", providerThreadId: conversation.providerThreadId ?? msg.providerThreadId } });
+    await db.conversation.update({ where: { id: conversation.id }, data: { category, lastMessageAt: msg.receivedAt, lastDirection: "INBOUND", providerThreadId: conversation.providerThreadId ?? msg.providerThreadId } });
     return { messageId: stored.id, conversationId: conversation.id, matchedBy, duplicate: false, filtered: true as const };
   }
   await db.conversation.update({
     where: { id: conversation.id },
-    data: { lastMessageAt: msg.receivedAt, lastDirection: "INBOUND", unread: true, isOpen: true, providerThreadId: conversation.providerThreadId ?? msg.providerThreadId },
+    data: { category, lastMessageAt: msg.receivedAt, lastDirection: "INBOUND", unread: true, isOpen: true, providerThreadId: conversation.providerThreadId ?? msg.providerThreadId },
   });
   if (conversation.businessId) {
     await cancelFollowUps(workspaceId, conversation.businessId, "Business replied");

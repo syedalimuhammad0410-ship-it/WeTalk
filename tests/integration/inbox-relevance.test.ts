@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { ingestInbound } from "@/lib/server/email/inbound";
 import type { InboundEmail } from "@/lib/server/email/providers";
-import { cleanupInbox, ruleRelevance } from "@/lib/server/email/relevance";
-import { sectionCounts } from "@/lib/server/inbox";
+import { categorizeEmail, cleanupInbox, ruleRelevance } from "@/lib/server/email/relevance";
+import { categoryCounts, inboxWhere, parseInboxFilters, sectionCounts } from "@/lib/server/inbox";
 import { setConversationControl } from "@/lib/server/replies/actions";
 import { setAiFactoryForTests } from "@/lib/server/ai/client";
 import { fakeAi, makeWorkspace, noAi } from "../helpers";
@@ -93,5 +93,38 @@ describe("inbound filtering", () => {
     expect(res.filtered).toBe(1);
     expect(await db.conversation.findUniqueOrThrow({ where: { id: old.id } })).toMatchObject({ filtered: true, needsHumanReview: false });
     expect(await db.conversation.findUniqueOrThrow({ where: { id: keep!.conversationId! } })).toMatchObject({ filtered: false });
+  });
+});
+
+describe("email categories and inbox filters", () => {
+  afterEach(() => setAiFactoryForTests(null));
+
+  it("categorises common email types", () => {
+    expect(categorizeEmail(mail("no-reply@app.test", "Your code", "123456 is your verification code"))).toBe("verification_code");
+    expect(categorizeEmail(mail("hello@tool.test", "Please confirm your email", "Click to verify your email address"))).toBe("confirmation");
+    expect(categorizeEmail(mail("security@bank.test", "New sign-in", "We noticed a new sign-in to your account"))).toBe("security_alert");
+    expect(categorizeEmail(mail("orders@shop.test", "Order #4412 has shipped", "Tracking inside"))).toBe("receipt_order");
+    expect(categorizeEmail(mail("news@brand.test", "October news", "Read more", { isBulk: true }))).toBe("newsletter_promo");
+    expect(categorizeEmail(mail("owner@bakery.test", "Re: website", "Sounds good"), { linkedToLead: true })).toBe("lead_reply");
+    expect(categorizeEmail(mail("rep@leads.test", "Leads", "We sell leads"), { relevance: { related: false, method: "ai", category: "cold_pitch_to_us", reason: "" } })).toBe("cold_pitch");
+  });
+
+  it("filters by type (including filtered email), people we contacted, linked leads and text", async () => {
+    noAi();
+    const { ws } = await makeWorkspace();
+    const account = (await db.emailAccount.findFirst({ where: { workspaceId: ws.id } }))!;
+    const code = await ingestInbound(account, mail("no-reply@app.test", "Your login code", "482913 is your verification code"));
+    expect(code).toMatchObject({ filtered: true });
+    const contacted = await db.conversation.create({ data: { workspaceId: ws.id, subject: "quick note", counterpartEmail: "owner@salon.test", category: "lead_reply" } });
+    await db.emailMessage.create({ data: { workspaceId: ws.id, conversationId: contacted.id, direction: "OUTBOUND", status: "SENT", kind: "OUTREACH", fromAddress: "agency@studio.test", toAddress: "owner@salon.test", subject: "quick note", bodyText: "Hi there, about your salon website" } });
+
+    const find = (sp: Record<string, string>, section: "all" | "filtered" = "all") => db.conversation.findMany({ where: inboxWhere(ws.id, section, parseInboxFilters(sp)), select: { id: true } });
+    expect((await find({})).map((c) => c.id)).not.toContain(code!.conversationId);
+    expect((await find({ cat: "verification_code" })).map((c) => c.id)).toEqual([code!.conversationId]);
+    expect((await find({ contacted: "1" })).map((c) => c.id)).toEqual([contacted.id]);
+    expect((await find({ q: "salon website" })).map((c) => c.id)).toEqual([contacted.id]);
+    expect(await find({ cat: "not-a-real-type" })).toHaveLength((await find({})).length);
+    const counts = await categoryCounts(ws.id);
+    expect(counts).toMatchObject({ contacted: 1, byCategory: { verification_code: 1, lead_reply: 1 } });
   });
 });

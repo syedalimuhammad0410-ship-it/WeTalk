@@ -2,10 +2,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Building2, ChevronsUpDown, LifeBuoy, LogOut, Menu, Plus, ShieldCheck, UserCircle2, X, Search, MoreHorizontal, Check, FlaskConical } from "lucide-react";
+import { Building2, ChevronsUpDown, LifeBuoy, LogOut, Menu, Plus, ShieldCheck, UserCircle2, X, Search, MoreHorizontal, Check, FlaskConical, Sparkles } from "lucide-react";
 import { cn, initials } from "@/lib/utils";
 import { apiFetch } from "@/lib/client";
 import { NAV } from "./nav";
+import { AssistantPanel } from "../assistant/assistant-panel";
 import { Wordmark } from "./logo";
 import { NotificationsMenu } from "./notifications";
 import { CommandPalette } from "./command-palette";
@@ -31,6 +32,7 @@ export function AppShell(p: ShellProps) {
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
   const [palette, setPalette] = useState(false);
+  const [assistant, setAssistant] = useState(false);
   useEffect(() => setDrawer(false), [pathname]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -50,14 +52,14 @@ export function AppShell(p: ShellProps) {
       </a>
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block">
-        <Sidebar {...p} />
+        <Sidebar {...p} onAssistant={() => setAssistant(true)} />
       </aside>
       {/* Mobile drawer */}
       {drawer && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setDrawer(false)} aria-hidden />
           <div className="absolute inset-y-0 left-0 w-[86%] max-w-xs animate-fade-in">
-            <Sidebar {...p} onClose={() => setDrawer(false)} />
+            <Sidebar {...p} onClose={() => setDrawer(false)} onAssistant={() => { setDrawer(false); setAssistant(true); }} />
           </div>
         </div>
       )}
@@ -90,11 +92,12 @@ export function AppShell(p: ShellProps) {
       </main>
       <MobileNav counts={p.counts} onMore={() => setDrawer(true)} />
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
+      <AssistantPanel open={assistant} onClose={() => setAssistant(false)} />
     </div>
   );
 }
 
-function Sidebar({ user, workspace, role, workspaces, counts, onClose }: ShellProps & { onClose?: () => void }) {
+function Sidebar({ user, workspace, role, workspaces, counts, onClose, onAssistant }: ShellProps & { onClose?: () => void; onAssistant?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const toast = useToast();
@@ -145,6 +148,12 @@ function Sidebar({ user, workspace, role, workspaces, counts, onClose }: ShellPr
             <ShieldCheck className="h-[18px] w-[18px]" />
             Admin
           </Link>
+        )}
+        {onAssistant && (
+          <button type="button" onClick={onAssistant} className="mt-3 flex w-full items-center gap-3 rounded-lg bg-gradient-to-r from-indigo-500/25 to-violet-500/20 px-2.5 py-2 text-left text-[13.5px] font-medium text-white ring-1 ring-inset ring-indigo-400/30 transition-colors hover:from-indigo-500/40 hover:to-violet-500/30">
+            <Sparkles className="h-[18px] w-[18px] text-indigo-300" />
+            Ask WebScout AI
+          </button>
         )}
       </nav>
       <div className="space-y-0.5 border-t border-sidebar-border p-3">
