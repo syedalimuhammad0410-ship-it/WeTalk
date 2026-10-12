@@ -1,6 +1,7 @@
 import "./guard";
 import PDFDocument from "pdfkit";
 import { getPlaybook } from "./intel/playbooks";
+import { env } from "./env";
 import { leadMissingFeatures, leadReasons, type ExportLead } from "./export";
 
 export type PdfSections = { summary: boolean; contact: boolean; audit: boolean; opportunity: boolean; outreach: boolean; notes: boolean };
@@ -24,6 +25,13 @@ function clean(s: unknown): string {
 const human = (s: string | null | undefined) => (s ? s.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "—");
 const date = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : "—");
 /** Higher is better for both scores shown (website quality, sales opportunity). */
+/** A clickable URL for a website value ("example.com" → "https://example.com"). */
+export function webLink(v: string | null | undefined): string | undefined {
+  const t = (v ?? "").trim();
+  if (!t || /\s/.test(t)) return undefined;
+  if (/^https?:\/\//i.test(t)) return t;
+  return /^[\w-]+(\.[\w-]+)+([/?#].*)?$/.test(t) ? `https://${t}` : undefined;
+}
 const scoreColor = (n: number | null | undefined) => (n == null ? C.muted : n < 45 ? C.bad : n < 70 ? C.warn : C.good);
 
 export async function buildLeadsPdf(opts: { leads: ExportLead[]; total: number; agency: string; title: string; scope: string; sections: PdfSections }): Promise<Buffer> {
@@ -43,7 +51,8 @@ export async function buildLeadsPdf(opts: { leads: ExportLead[]; total: number; 
   const heading = (s: string) => { ensure(40); doc.moveDown(0.6); text(s.toUpperCase(), { size: 8.5, bold: true, color: C.accent }); doc.moveDown(0.25); };
   const rule = () => { doc.moveDown(0.5); doc.moveTo(L, doc.y).lineTo(L + W, doc.y).lineWidth(0.7).strokeColor(C.line).stroke(); doc.moveDown(0.5); };
   const bullets = (items: string[]) => { for (const it of items) { ensure(16); text(`•  ${it}`, { size: 9.5, x: L + 6, width: W - 6 }); } };
-  const kv = (rows: [string, unknown][]) => {
+  /** Rows are [label, value] or [label, value, link]; linked values are underlined and clickable. */
+  const kv = (rows: ([string, unknown] | [string, unknown, string | undefined])[]) => {
     const colW = W / 2 - 8;
     for (let i = 0; i < rows.length; i += 2) {
       ensure(30);
@@ -53,21 +62,23 @@ export async function buildLeadsPdf(opts: { leads: ExportLead[]; total: number; 
         if (!row) continue;
         const x = L + j * (colW + 16);
         doc.font("Helvetica").fontSize(7.5).fillColor(C.faint).text(clean(row[0]).toUpperCase(), x, y, { width: colW });
-        doc.font("Helvetica").fontSize(9.5).fillColor(C.ink).text(clean(row[1]) || "—", x, doc.y + 1, { width: colW, lineGap: 1 });
+        const link = row[2];
+        doc.font("Helvetica").fontSize(9.5).fillColor(link ? C.accent : C.ink).text(clean(row[1]) || "—", x, doc.y + 1, { width: colW, lineGap: 1, link, underline: !!link });
         maxY = Math.max(maxY, doc.y);
       }
       doc.y = maxY + 6;
     }
     doc.x = L;
   };
-  const table = (head: string[], rows: string[][], widths: number[]) => {
-    const draw = (cells: string[], bold: boolean) => {
+  const table = (head: string[], rows: string[][], widths: number[], links: (string | undefined)[][] = []) => {
+    const draw = (cells: string[], bold: boolean, cellLinks: (string | undefined)[] = []) => {
       ensure(20);
       const y = doc.y;
       let x = L;
       let maxY = y;
       cells.forEach((c, i) => {
-        doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(bold ? 8 : 9).fillColor(bold ? C.muted : C.ink).text(clean(c), x + 4, y + 4, { width: widths[i]! * W - 8, lineGap: 1 });
+        const link = cellLinks[i];
+        doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(bold ? 8 : 9).fillColor(bold ? C.muted : link ? C.accent : C.ink).text(clean(c), x + 4, y + 4, { width: widths[i]! * W - 8, lineGap: 1, link, underline: !!link });
         maxY = Math.max(maxY, doc.y);
         x += widths[i]! * W;
       });
@@ -76,7 +87,7 @@ export async function buildLeadsPdf(opts: { leads: ExportLead[]; total: number; 
       doc.x = L;
     };
     draw(head, true);
-    rows.forEach((r) => draw(r, false));
+    rows.forEach((r, i) => draw(r, false, links[i]));
   };
   const statBoxes = (stats: [string, string][]) => {
     const n = stats.length;
@@ -97,6 +108,8 @@ export async function buildLeadsPdf(opts: { leads: ExportLead[]; total: number; 
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   };
 
+  const leadUrl = (id: string) => `${env.appUrl()}/leads/${id}`;
+
   // ── Summary page ──
   text(opts.agency || "WebScout AI", { size: 10, color: C.muted });
   text(opts.title, { size: 24, bold: true });
@@ -115,7 +128,8 @@ export async function buildLeadsPdf(opts: { leads: ExportLead[]; total: number; 
       ["Responded", String(opts.leads.filter((l) => l.lastResponseAt).length)],
     ]);
     heading("Top opportunities");
-    table(["Business", "Type", "City", "Website", "Opportunity"], [...opts.leads].filter((l) => l.opportunityScore != null).sort((a, b) => b.opportunityScore! - a.opportunityScore!).slice(0, 12).map((l) => [l.name, getPlaybook(l.businessType).label, l.city ?? "—", human(l.websiteClass ?? l.websiteStatus), `${l.opportunityScore}/100`]), [0.34, 0.2, 0.16, 0.16, 0.14]);
+    const top = [...opts.leads].filter((l) => l.opportunityScore != null).sort((a, b) => b.opportunityScore! - a.opportunityScore!).slice(0, 10);
+    table(["Business", "Type", "City", "Website", "Opportunity"], top.map((l) => [l.name, getPlaybook(l.businessType).label, l.city ?? "—", human(l.websiteClass ?? l.websiteStatus), `${l.opportunityScore}/100`]), [0.34, 0.2, 0.16, 0.16, 0.14], top.map((l) => [leadUrl(l.id), undefined, undefined, webLink(l.website), undefined]));
     // Breakdowns two per row so the summary stays compact.
     const mini = (title: string, rows: [string, number][], x: number, w: number, y0: number) => {
       doc.font("Helvetica-Bold").fontSize(8.5).fillColor(C.accent).text(title.toUpperCase(), x, y0, { width: w });
@@ -129,7 +143,9 @@ export async function buildLeadsPdf(opts: { leads: ExportLead[]; total: number; 
       return y;
     };
     const pair = (a: [string, [string, number][]], b: [string, [string, number][]]) => {
-      ensure(110);
+      // Reserve the exact height so a breakdown never spills a single row onto the next page.
+      const rows = Math.min(6, Math.max(a[1].length, b[1].length));
+      ensure(12 + 14 + rows * 14 + 8);
       doc.moveDown(0.6);
       const y0 = doc.y;
       const w = (W - 24) / 2;
@@ -150,7 +166,7 @@ export async function buildLeadsPdf(opts: { leads: ExportLead[]; total: number; 
     doc.moveDown(0.4);
     for (const l of opts.leads) {
       ensure(120);
-      text(l.name, { size: 14, bold: true });
+      doc.font("Helvetica-Bold").fontSize(14).fillColor(C.ink).text(clean(l.name), L, undefined, { width: W, link: leadUrl(l.id) });
       text(`${getPlaybook(l.businessType).label}${l.city ? ` · ${l.city}` : ""} · ${human(l.status)}${l.doNotContact ? " · DO NOT CONTACT" : ""}`, { size: 9, color: C.muted });
       doc.moveDown(0.2);
       doc.font("Helvetica-Bold").fontSize(9.5);
@@ -163,7 +179,7 @@ export async function buildLeadsPdf(opts: { leads: ExportLead[]; total: number; 
 
       if (s.contact) {
         heading("Contact");
-        kv([["Phone", l.phone], ["Email", l.email], ["Website", l.website ?? "No website found"], ["Address", l.address], ["Google rating", l.rating != null ? `${l.rating} (${l.reviewCount ?? 0} reviews)` : "—"], ["Google Maps", l.googleMapsUrl], ...(l.hours.length ? [["Hours", l.hours.slice(0, 7).join("; ")] as [string, unknown]] : [])]);
+        kv([["Phone", l.phone, l.phone ? `tel:${l.phone.replace(/[^\d+]/g, "")}` : undefined], ["Email", l.email, l.email ? `mailto:${l.email}` : undefined], ["Website", l.website ?? "No website found", webLink(l.website)], ["Address", l.address], ["Google rating", l.rating != null ? `${l.rating} (${l.reviewCount ?? 0} reviews)` : "—"], ["Google Maps", l.googleMapsUrl ? "Open in Google Maps" : null, l.googleMapsUrl ?? undefined], ["Open in WebScout", "View lead", leadUrl(l.id)], ...(l.hours.length ? [["Hours", l.hours.slice(0, 7).join("; ")] as [string, unknown]] : [])]);
       }
       const audit = l.audits[0];
       if (s.audit && audit) {

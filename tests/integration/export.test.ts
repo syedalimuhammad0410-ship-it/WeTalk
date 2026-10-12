@@ -34,4 +34,25 @@ describe("custom lead export", () => {
     expect(pages).toBeGreaterThanOrEqual(2);
     expect(leads[0]!.name).toContain("Maple"); // highest opportunity first
   });
+
+  it("keeps summary breakdowns together and makes websites, emails and leads clickable", async () => {
+    const { ws } = await seed();
+    const cities = ["Brampton", "Oakville", "Milton", "Burlington", "Vaughan", "Markham", "Pickering", "Ajax"];
+    const types = ["plumber", "roofer", "electrician", "landscaper", "salon", "restaurant", "auto_repair", "cleaning"];
+    for (let i = 0; i < 16; i++) {
+      await db.business.create({ data: { workspaceId: ws.id, name: `Biz ${i}`, normalizedName: `biz ${i}`, city: cities[i % 8], businessType: types[i % 8], website: i % 2 ? `biz${i}.test` : null, websiteStatus: i % 2 ? "WEBSITE_FOUND" : "NO_WEBSITE", opportunityScore: 40 + i } });
+    }
+    const { leads, total } = await loadExportLeads(ws.id, { columns: [] }, 300);
+    const summaryOnly = { summary: true, contact: false, audit: false, opportunity: false, outreach: false, notes: false };
+    const pdf = await buildLeadsPdf({ leads, total, agency: "Naqvi Helpers", title: "Lead report", scope: "All leads", sections: summaryOnly });
+    const raw = pdf.toString("latin1");
+    // Each breakdown pair lands whole on a page: one page, or two when the second pair moves over in full.
+    expect((raw.match(/\/Type \/Page\b/g) ?? []).length).toBeLessThanOrEqual(2);
+
+    const full = (await buildLeadsPdf({ leads, total, agency: "Naqvi Helpers", title: "Lead report", scope: "All leads", sections: DEFAULT_PDF_SECTIONS })).toString("latin1");
+    expect(full).toContain("(https://maple.test)");
+    expect(full).toContain("(https://biz1.test)"); // bare domains become https links
+    expect(full).toContain("(mailto:hi@maple.test)");
+    expect(full).toMatch(/\/leads\/[\w-]+\)/); // each lead links back to WebScout
+  });
 });
