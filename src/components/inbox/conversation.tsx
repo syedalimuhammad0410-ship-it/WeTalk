@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, CheckCircle2, Copy, FlaskConical, Hand, Pause, Pencil, Play, RefreshCcw, Send, ShieldOff, Sparkles, X, Mail, Phone, Globe, Lock, Unlock, Link2 } from "lucide-react";
+import { ArrowLeft, Bot, CheckCircle2, Copy, FlaskConical, Hand, Pause, Pencil, Play, RefreshCcw, Send, ShieldOff, Sparkles, X, Mail, Phone, Globe, Lock, Unlock, Link2, Filter, Inbox as InboxIcon } from "lucide-react";
 import { Card, Badge, Alert } from "../ui/misc";
 import { Button } from "../ui/button";
 import { Field, Input, Select, Textarea } from "../ui/form";
@@ -154,9 +154,13 @@ export function Conversation({ conv, followUps, leadOptions, perms }: { conv: an
         </div>
         <div className="flex flex-wrap gap-2">
           {sandbox && perms.send && <Button variant="outline" size="sm" onClick={() => setSimulate(true)}><FlaskConical className="h-4 w-4" /> Simulate reply</Button>}
-          {perms.send && (conv.isOpen ? <Button size="sm" variant="ghost" onClick={() => control("CLOSE", "Conversation closed")}><Lock className="h-4 w-4" /> Close</Button> : <Button size="sm" variant="ghost" onClick={() => control("REOPEN", "Conversation reopened")}><Unlock className="h-4 w-4" /> Reopen</Button>)}
+          {perms.send && (conv.filtered
+            ? <Button size="sm" variant="outline" onClick={() => control("UNFILTER", "Moved to the inbox — the AI will analyse it now")}><InboxIcon className="h-4 w-4" /> Move to inbox</Button>
+            : !conv.businessId && <Button size="sm" variant="ghost" title="Not about your agency's work: move to Filtered" onClick={() => control("FILTER", "Moved to Filtered")}><Filter className="h-4 w-4" /> Not related</Button>)}
+          {perms.send && !conv.filtered && (conv.isOpen ? <Button size="sm" variant="ghost" onClick={() => control("CLOSE", "Conversation closed")}><Lock className="h-4 w-4" /> Close</Button> : <Button size="sm" variant="ghost" onClick={() => control("REOPEN", "Conversation reopened")}><Unlock className="h-4 w-4" /> Reopen</Button>)}
         </div>
       </div>
+      {conv.filtered && <Alert tone="info" title="Filtered — not related to your agency">{conv.filterReason ?? "This email was judged unrelated (spam, newsletter, notification or similar)."} It is not analysed or answered. If this is a real enquiry, click “Move to inbox”.</Alert>}
       {b?.doNotContact && <Alert tone="danger" title="Do Not Contact">This business asked not to be contacted (or was marked so). Outreach, follow-ups and AI replies are blocked.</Alert>}
       <div className="flex rounded-lg border border-border bg-surface p-0.5 lg:hidden" role="tablist">
         {(["thread", "ai", "business"] as const).map((p) => <button key={p} role="tab" aria-selected={mobilePanel === p} onClick={() => setMobilePanel(p)} className={cn("flex-1 rounded-md py-1.5 text-sm", mobilePanel === p ? "bg-subtle font-medium" : "text-muted")}>{{ thread: "Conversation", ai: "AI", business: "Business" }[p]}</button>)}

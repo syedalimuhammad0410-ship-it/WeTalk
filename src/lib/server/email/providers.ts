@@ -32,6 +32,10 @@ export type InboundEmail = {
   receivedAt: Date;
   mailboxHash?: string | null;
   isAutoReply?: boolean;
+  /** Mailing-list / bulk-mail headers present (List-Unsubscribe, List-Id, Precedence: bulk). */
+  isBulk?: boolean;
+  /** Gmail inbox category when known (e.g. CATEGORY_UPDATES). */
+  category?: string | null;
 };
 
 export interface EmailProviderClient {
@@ -127,7 +131,7 @@ class GmailProvider implements EmailProviderClient {
   async fetchInbound(): Promise<InboundEmail[]> {
     const since = this.account.lastSyncAt ?? new Date(Date.now() - 3 * 86400_000);
     const after = Math.floor((since.getTime() - 3600_000) / 1000);
-    const list = await this.api<{ messages?: { id: string; threadId: string }[] }>(`messages?q=${encodeURIComponent(`in:inbox after:${after} -from:me`)}&maxResults=50`);
+    const list = await this.api<{ messages?: { id: string; threadId: string }[] }>(`messages?q=${encodeURIComponent(`in:inbox after:${after} -from:me -category:promotions -category:social -category:forums`)}&maxResults=50`);
     const out: InboundEmail[] = [];
     for (const m of list.messages ?? []) {
       const exists = await db.emailMessage.findFirst({ where: { workspaceId: this.account.workspaceId, providerMessageId: m.id }, select: { id: true } });
@@ -140,7 +144,7 @@ class GmailProvider implements EmailProviderClient {
 }
 
 type GmailPart = { mimeType?: string; body?: { data?: string }; parts?: GmailPart[]; headers?: { name: string; value: string }[] };
-type GmailMessage = { id: string; threadId: string; internalDate?: string; payload: GmailPart };
+type GmailMessage = { id: string; threadId: string; internalDate?: string; labelIds?: string[]; payload: GmailPart };
 
 function parseGmail(m: GmailMessage): InboundEmail {
   const headers = new Map((m.payload.headers ?? []).map((h) => [h.name.toLowerCase(), h.value]));
@@ -169,7 +173,14 @@ function parseGmail(m: GmailMessage): InboundEmail {
     html,
     receivedAt: m.internalDate ? new Date(Number(m.internalDate)) : new Date(),
     isAutoReply: /auto-replied|auto-generated/i.test(headers.get("auto-submitted") ?? "") || Boolean(headers.get("x-autoreply")),
+    isBulk: bulkHeaders(headers),
+    category: m.labelIds?.find((l) => l.startsWith("CATEGORY_")) ?? null,
   };
+}
+
+/** Newsletters and mailing lists announce themselves with these headers. */
+export function bulkHeaders(headers: Map<string, string>) {
+  return Boolean(headers.get("list-unsubscribe") || headers.get("list-id")) || /\b(bulk|list|junk)\b/i.test(headers.get("precedence") ?? "");
 }
 
 // ───────────────────────── Postmark (API token + inbound webhook) ─────────────────────────
@@ -231,6 +242,7 @@ export function parsePostmarkInbound(body: Record<string, unknown>): InboundEmai
     receivedAt: body.Date ? new Date(String(body.Date)) : new Date(),
     mailboxHash: body.MailboxHash ? String(body.MailboxHash) : null,
     isAutoReply: /auto-replied|auto-generated/i.test(headers.get("auto-submitted") ?? ""),
+    isBulk: bulkHeaders(headers),
   };
 }
 

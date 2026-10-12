@@ -39,7 +39,7 @@ export async function rejectDraft(workspaceId: string, draftId: string, userId: 
   await logActivity({ workspaceId, userId, businessId: draft.businessId, action: "ai.response_rejected", summary: "AI response draft rejected" });
 }
 
-export async function setConversationControl(workspaceId: string, conversationId: string, userId: string, action: "PAUSE_AI" | "RESUME_AI" | "TAKE_OVER" | "RELEASE" | "DO_NOT_CONTACT" | "MARK_READ" | "CLOSE" | "REOPEN") {
+export async function setConversationControl(workspaceId: string, conversationId: string, userId: string, action: "PAUSE_AI" | "RESUME_AI" | "TAKE_OVER" | "RELEASE" | "DO_NOT_CONTACT" | "MARK_READ" | "CLOSE" | "REOPEN" | "FILTER" | "UNFILTER") {
   const conv = await db.conversation.findFirst({ where: { id: conversationId, workspaceId } });
   if (!conv) throw new AppError("NOT_FOUND", "Conversation not found.");
   const bid = conv.businessId;
@@ -51,6 +51,21 @@ export async function setConversationControl(workspaceId: string, conversationId
     case "REOPEN":
       await db.conversation.update({ where: { id: conv.id }, data: { isOpen: action === "REOPEN" } });
       break;
+    case "FILTER":
+      // Marked "not related": out of the inbox sections; pending AI drafts are withdrawn.
+      await db.conversation.update({ where: { id: conv.id }, data: { filtered: true, filterReason: "Marked as not related by a team member", isOpen: false, unread: false, needsHumanReview: false } });
+      await db.aiResponseDraft.updateMany({ where: { conversationId: conv.id, status: "PENDING" }, data: { status: "SUPERSEDED" } });
+      break;
+    case "UNFILTER": {
+      await db.conversation.update({ where: { id: conv.id }, data: { filtered: false, filterReason: null, isOpen: true, unread: true, needsHumanReview: !bid, reviewReason: bid ? conv.reviewReason : "Moved to the inbox manually — not linked to a lead yet" } });
+      // It was never analysed while filtered: analyse the latest inbound message now.
+      const last = await db.emailMessage.findFirst({ where: { conversationId: conv.id, direction: "INBOUND" }, orderBy: { createdAt: "desc" }, select: { id: true, fromAddress: true } });
+      if (last) {
+        const { enqueueJob } = await import("../jobs/queue");
+        await enqueueJob({ workspaceId, type: "INBOUND_ANALYSIS", label: `Analyse email from ${last.fromAddress}`, payload: { messageId: last.id } });
+      }
+      break;
+    }
     case "PAUSE_AI":
     case "RESUME_AI":
       if (!bid) throw new AppError("VALIDATION", "Link this conversation to a lead first.");
@@ -68,5 +83,5 @@ export async function setConversationControl(workspaceId: string, conversationId
       await db.suppressionEntry.upsert({ where: { workspaceId_value: { workspaceId, value: conv.counterpartEmail } }, create: { workspaceId, value: conv.counterpartEmail, reason: "Marked Do Not Contact" }, update: {} });
       break;
   }
-  await logActivity({ workspaceId, userId, businessId: bid, action: `conversation.${action.toLowerCase()}`, summary: { PAUSE_AI: "AI paused", RESUME_AI: "AI resumed", TAKE_OVER: "Conversation taken over by a human", RELEASE: "Conversation released back to AI", DO_NOT_CONTACT: "Marked Do Not Contact", CLOSE: "Conversation closed", REOPEN: "Conversation reopened", MARK_READ: "" }[action] });
+  await logActivity({ workspaceId, userId, businessId: bid, action: `conversation.${action.toLowerCase()}`, summary: { PAUSE_AI: "AI paused", RESUME_AI: "AI resumed", TAKE_OVER: "Conversation taken over by a human", RELEASE: "Conversation released back to AI", DO_NOT_CONTACT: "Marked Do Not Contact", CLOSE: "Conversation closed", REOPEN: "Conversation reopened", MARK_READ: "", FILTER: "Marked as not related (filtered)", UNFILTER: "Moved back to the inbox" }[action] });
 }

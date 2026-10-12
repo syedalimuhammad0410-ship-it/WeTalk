@@ -6,6 +6,9 @@ import { cancelFollowUps } from "../followups";
 import { changeLeadStatus } from "../leads";
 import type { InboundEmail } from "./providers";
 import { providerFor } from "./providers";
+import { assessRelevance, type Relevance } from "./relevance";
+import { getAi } from "../ai/client";
+import { getSettings } from "../workspace";
 
 export type MatchMethod = "mailbox_hash" | "in_reply_to" | "references" | "provider_thread" | "sender_email" | "sender_domain" | "unmatched";
 
@@ -62,12 +65,30 @@ export async function ingestInbound(account: EmailAccount, msg: InboundEmail, op
     }
   }
 
-  const conversation = conversationId
-    ? await db.conversation.findUniqueOrThrow({ where: { id: conversationId } })
-    : businessId
+  // Relevance: emails tied to our outreach or a known lead are always kept. A conversation
+  // that was filtered stays filtered unless it contains an email we sent. Anything else is
+  // checked (prior contact → rules → AI) so spam/newsletters don't reach the inbox.
+  let conversation = conversationId ? await db.conversation.findUniqueOrThrow({ where: { id: conversationId } }) : null;
+  let relevance: Relevance | null = null;
+  if (conversation?.filtered) {
+    const ours = await db.emailMessage.findFirst({ where: { conversationId: conversation.id, direction: "OUTBOUND" }, select: { id: true } });
+    if (ours) conversation = await db.conversation.update({ where: { id: conversation.id }, data: { filtered: false, filterReason: null } });
+    else relevance = { related: false, method: "rules", category: "previously_filtered", reason: conversation.filterReason ?? "Earlier email from this sender was filtered" };
+  } else if (!conversation && !businessId) {
+    const { company, automation } = await getSettings(workspaceId);
+    const ai = automation.aiResponseAnalysis ? await getAi(workspaceId).catch(() => null) : null;
+    relevance = await assessRelevance(workspaceId, msg, company, ai);
+  }
+  const isFiltered = relevance ? !relevance.related : false;
+
+  if (!conversation) {
+    conversation = businessId
       ? (await db.conversation.findFirst({ where: { workspaceId, businessId }, orderBy: { lastMessageAt: "desc" } })) ??
         (await db.conversation.create({ data: { workspaceId, businessId, emailAccountId: account.id, subject: msg.subject, counterpartEmail: from } }))
-      : await db.conversation.create({ data: { workspaceId, emailAccountId: account.id, subject: msg.subject, counterpartEmail: from, needsHumanReview: true, reviewReason: "Sender could not be matched to a lead" } });
+      : isFiltered
+        ? await db.conversation.create({ data: { workspaceId, emailAccountId: account.id, subject: msg.subject, counterpartEmail: from, filtered: true, filterReason: relevance!.reason.slice(0, 300), isOpen: false, unread: false } })
+        : await db.conversation.create({ data: { workspaceId, emailAccountId: account.id, subject: msg.subject, counterpartEmail: from, needsHumanReview: true, reviewReason: relevance ? `Not matched to a lead — ${relevance.reason}`.slice(0, 300) : "Sender could not be matched to a lead" } });
+  }
 
   const stored = await db.emailMessage.create({
     data: {
@@ -89,9 +110,14 @@ export async function ingestInbound(account: EmailAccount, msg: InboundEmail, op
       references: msg.references,
       providerThreadId: msg.providerThreadId,
       receivedAt: msg.receivedAt,
-      analysis: { matchedBy },
+      analysis: { matchedBy, ...(relevance ? { relevance } : {}) },
     },
   });
+  if (isFiltered) {
+    // Kept for the record (Inbox → Filtered) but no lead updates, AI analysis or notifications.
+    await db.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: msg.receivedAt, lastDirection: "INBOUND", providerThreadId: conversation.providerThreadId ?? msg.providerThreadId } });
+    return { messageId: stored.id, conversationId: conversation.id, matchedBy, duplicate: false, filtered: true as const };
+  }
   await db.conversation.update({
     where: { id: conversation.id },
     data: { lastMessageAt: msg.receivedAt, lastDirection: "INBOUND", unread: true, isOpen: true, providerThreadId: conversation.providerThreadId ?? msg.providerThreadId },
@@ -109,7 +135,7 @@ export async function ingestInbound(account: EmailAccount, msg: InboundEmail, op
     const { enqueueJob } = await import("../jobs/queue");
     await enqueueJob({ workspaceId, type: "INBOUND_ANALYSIS", label: `Analyse reply from ${from}`, payload: { messageId: stored.id } });
   }
-  return { messageId: stored.id, conversationId: conversation.id, matchedBy, duplicate: false };
+  return { messageId: stored.id, conversationId: conversation.id, matchedBy, duplicate: false, filtered: false as const };
 }
 
 /** Polls a provider (Gmail) for new inbound messages. */
@@ -117,10 +143,11 @@ export async function syncAccount(account: EmailAccount) {
   const started = new Date();
   const msgs = await providerFor(account).fetchInbound();
   let ingested = 0;
+  let filtered = 0;
   for (const m of msgs.sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())) {
     const r = await ingestInbound(account, m);
-    if (r && !r.duplicate) ingested++;
+    if (r && !r.duplicate) r.filtered ? filtered++ : ingested++;
   }
   await db.emailAccount.update({ where: { id: account.id }, data: { lastSyncAt: started, status: "CONNECTED", lastError: null } });
-  return { fetched: msgs.length, ingested };
+  return { fetched: msgs.length, ingested, filtered, message: `${ingested} new email${ingested === 1 ? "" : "s"}${filtered ? `, ${filtered} filtered as not related` : ""}` };
 }

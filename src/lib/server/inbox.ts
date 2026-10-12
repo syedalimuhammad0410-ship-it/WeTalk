@@ -4,7 +4,9 @@ import { db } from "../db";
 import type { InboxSection } from "../constants";
 
 export function sectionWhere(workspaceId: string, section: InboxSection): Prisma.ConversationWhereInput {
-  const base = { workspaceId };
+  // Emails judged unrelated to the agency (spam, newsletters, notifications) only appear under "Filtered".
+  if (section === "filtered") return { workspaceId, filtered: true };
+  const base = { workspaceId, filtered: false };
   switch (section) {
     case "unread": return { ...base, unread: true };
     case "new": return { ...base, lastDirection: "INBOUND", isOpen: true };
@@ -19,7 +21,7 @@ export function sectionWhere(workspaceId: string, section: InboxSection): Prisma
 }
 
 export async function sectionCounts(workspaceId: string) {
-  const ids: InboxSection[] = ["all", "unread", "new", "draft", "interested", "followup", "review", "hot", "closed"];
+  const ids: InboxSection[] = ["all", "unread", "new", "draft", "interested", "followup", "review", "hot", "closed", "filtered"];
   const counts = await Promise.all(ids.map((s) => db.conversation.count({ where: sectionWhere(workspaceId, s) })));
   return Object.fromEntries(ids.map((s, i) => [s, counts[i]!])) as Record<InboxSection, number>;
 }

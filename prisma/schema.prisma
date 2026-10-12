@@ -710,6 +710,9 @@ model Conversation {
   lastConfidence   Int?
   needsHumanReview Boolean           @default(false)
   reviewReason     String?
+  /// Not related to the agency (spam, newsletters, notifications…): kept out of the inbox sections.
+  filtered         Boolean           @default(false)
+  filterReason     String?
   isHot            Boolean           @default(false)
   assignedToId     String?
   createdAt        DateTime          @default(now())
@@ -718,6 +721,7 @@ model Conversation {
   drafts   AiResponseDraft[]
 
   @@index([workspaceId, lastMessageAt])
+  @@index([workspaceId, filtered, lastMessageAt])
   @@index([workspaceId, providerThreadId])
   @@index([workspaceId, counterpartEmail])
   @@index([businessId])

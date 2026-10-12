@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Inbox, Sparkles, ShieldAlert, Flame } from "lucide-react";
+import { Inbox, Sparkles, ShieldAlert, Flame, Filter } from "lucide-react";
 import { Card, EmptyState, Badge } from "../ui/misc";
 import { ButtonLink } from "../ui/button";
 import { Tabs } from "../ui/tabs";
@@ -47,7 +47,7 @@ export function InboxList({ section, counts, conversations, page }: { section: I
                         {c.needsHumanReview && <Badge tone="amber"><ShieldAlert className="h-3 w-3" /> Needs review</Badge>}
                         {c.business && <Badge tone={LEAD_STATUS_META[c.business.status as LeadStatusT]?.tone}>{LEAD_STATUS_META[c.business.status as LeadStatusT]?.label}</Badge>}
                         {c.assignedTo && <span className="text-xs text-faint">· {c.assignedTo}</span>}
-                        {!c.isOpen && <Badge tone="zinc">Closed</Badge>}
+                        {c.filtered ? <Badge tone="zinc"><Filter className="h-3 w-3" /> Not related{c.filterReason ? ` — ${c.filterReason}` : ""}</Badge> : !c.isOpen && <Badge tone="zinc">Closed</Badge>}
                       </div>
                     </div>
                   </Link>

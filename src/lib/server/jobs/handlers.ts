@@ -60,6 +60,11 @@ export const HANDLERS: Record<Job["type"], Handler> = {
     });
   },
   async BULK_ACTION(job, ctx) {
+    const op = (job.payload as { op?: string }).op;
+    if (op === "inbox_cleanup") {
+      const { cleanupInbox } = await import("../email/relevance");
+      return cleanupInbox(job.workspaceId, (p) => ctx.progress(p));
+    }
     // Bulk outreach send: spaced by the workspace's minimum delay; limits enforced by sendEmail.
     const p = job.payload as { messageIds?: string[] };
     const { sendEmail } = await import("../email/send");

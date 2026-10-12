@@ -131,5 +131,6 @@ export const INBOX_SECTIONS = [
   { id: "review", label: "Needs human review" },
   { id: "hot", label: "Hot leads" },
   { id: "closed", label: "Closed" },
+  { id: "filtered", label: "Filtered (not related)" },
 ] as const;
 export type InboxSection = (typeof INBOX_SECTIONS)[number]["id"];

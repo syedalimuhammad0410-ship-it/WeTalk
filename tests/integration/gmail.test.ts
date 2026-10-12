@@ -39,7 +39,7 @@ describe("Gmail provider (OAuth, HTTP mocked)", () => {
     expect(sentRaw).toMatch(/^Message-ID: <.+@gmail\.test>/m);
     expect(decryptSecret((await db.emailAccount.findUniqueOrThrow({ where: { id: acc.id } })).accessTokenEncrypted!)).toBe("new-token");
     const r = await syncAccount(await db.emailAccount.findUniqueOrThrow({ where: { id: acc.id } }));
-    expect(r).toEqual({ fetched: 1, ingested: 1 });
+    expect(r).toMatchObject({ fetched: 1, ingested: 1, filtered: 0 });
     const inbound = await db.emailMessage.findFirstOrThrow({ where: { workspaceId: ws.id, direction: "INBOUND" } });
     expect(inbound.conversationId).toBe(sent.conversationId);
     expect(inbound.fromAddress).toBe("owner@abc.test");
