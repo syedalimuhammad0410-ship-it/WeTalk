@@ -86,5 +86,8 @@ export async function retryJob(workspaceId: string, jobId: string) {
   const job = await db.job.findFirst({ where: { id: jobId, workspaceId } });
   if (!job) throw new AppError("NOT_FOUND", "Job not found.");
   if (!["FAILED", "CANCELLED"].includes(job.status)) throw new AppError("CONFLICT", "Only failed or cancelled jobs can be retried.");
-  return enqueueJob({ workspaceId, type: job.type, label: `${job.label} (retry)`, payload: job.payload as Prisma.InputJsonValue, createdById: job.createdById });
+  const retry = await enqueueJob({ workspaceId, type: job.type, label: `${job.label} (retry)`, payload: job.payload as Prisma.InputJsonValue, createdById: job.createdById });
+  // The original leaves the failed list once it has been retried.
+  if (job.status === "FAILED") await db.job.update({ where: { id: job.id }, data: { status: "CANCELLED", message: `Retried — see “${retry.label}”.` } });
+  return retry;
 }

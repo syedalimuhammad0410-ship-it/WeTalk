@@ -30,7 +30,7 @@ export function CampaignFields({ v, set, templates }: { v: CampaignValues; set: 
 
 export const toBody = (v: CampaignValues) => ({
   name: v.name, description: v.description, status: v.status, templateId: v.templateId || null, promptStrategy: v.promptStrategy,
-  followUpDays: v.followUpDays.split(",").map((x) => Number(x.trim())).filter((n) => n > 0), followUpMode: v.followUpMode,
+  followUpDays: Array.from(new Set(v.followUpDays.split(/[,\s]+/).map((x) => Math.round(Number(x.trim()))).filter((n) => n > 0))).sort((a, b) => a - b), followUpMode: v.followUpMode,
   searchSettings: { location: v.location, category: v.category },
 });
 

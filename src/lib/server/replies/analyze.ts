@@ -50,10 +50,16 @@ function renderThread(thread: ThreadMsg[]) {
  * applies do-not-contact rules, updates the lead, drafts a reply when
  * appropriate and decides (default-deny) whether it may be auto-sent.
  */
-export async function analyzeInboundMessage(workspaceId: string, messageId: string) {
+/** `regenerate`: only rebuild the draft (no notifications, no automatic send) — used when the user asks for a new draft. */
+export async function analyzeInboundMessage(workspaceId: string, messageId: string, opts: { regenerate?: boolean } = {}) {
   const message = await db.emailMessage.findFirst({ where: { id: messageId, workspaceId, direction: "INBOUND" }, include: { conversation: true } });
   if (!message || !message.conversation) throw new AppError("NOT_FOUND", "Inbound message not found.");
   const conv = message.conversation;
+  if (conv.filtered) {
+    if (opts.regenerate) throw new AppError("VALIDATION", "This email was filtered as not related to your agency. Move it to the inbox first.");
+    return { intent: null, confidence: 0, draftId: null, autoSent: false, reviewReasons: [] as string[], skipped: "filtered" as const };
+  }
+  const quiet = Boolean(opts.regenerate);
   const business = conv.businessId ? await db.business.findUnique({ where: { id: conv.businessId } }) : null;
   const { automation, company } = await getSettings(workspaceId);
   const thread = await db.emailMessage.findMany({ where: { conversationId: conv.id, status: { in: ["SENT", "RECEIVED"] }, createdAt: { lte: message.createdAt } }, orderBy: { createdAt: "asc" } });
@@ -75,7 +81,7 @@ export async function analyzeInboundMessage(workspaceId: string, messageId: stri
     await db.aiResponseDraft.updateMany({ where: { conversationId: conv.id, status: "PENDING" }, data: { status: "SUPERSEDED" } });
     await db.emailMessage.update({ where: { id: message.id }, data: { intent: "UNSUBSCRIBE", confidence: 95, analysis: { rules: rules as unknown as Prisma.InputJsonValue, summary: "Unsubscribe / do-not-contact request — suppressed automatically." } } });
     await db.conversation.update({ where: { id: conv.id }, data: { lastIntent: "UNSUBSCRIBE", lastConfidence: 95, needsHumanReview: false, reviewReason: "Unsubscribe processed: lead set to Do Not Contact and all automation stopped.", isHot: false } });
-    await notify({ workspaceId, type: "NEW_RESPONSE", title: `${business?.name ?? message.fromAddress} unsubscribed`, body: "Marked Do Not Contact. Follow-ups and AI replies stopped.", link: `/inbox/${conv.id}` });
+    if (!quiet) await notify({ workspaceId, type: "NEW_RESPONSE", title: `${business?.name ?? message.fromAddress} unsubscribed`, body: "Marked Do Not Contact. Follow-ups and AI replies stopped.", link: `/inbox/${conv.id}` });
     return { intent: "UNSUBSCRIBE" as Intent, confidence: 95, draftId: null, autoSent: false, reviewReasons: [] as string[] };
   }
 
@@ -138,8 +144,8 @@ export async function analyzeInboundMessage(workspaceId: string, messageId: stri
       await changeLeadStatus({ workspaceId, businessId: business.id, to: "INTERESTED", automatic: true, reason: `Reply classified as ${intent.replace(/_/g, " ").toLowerCase()}` });
     }
   }
-  if (isHot) await notify({ workspaceId, type: "HOT_LEAD", title: `Hot lead: ${business?.name ?? message.fromAddress}`, body: summary || newText.slice(0, 140), link: `/inbox/${conv.id}` });
-  if (intent === "REQUEST_FOR_MEETING" || intent === "REQUEST_FOR_PHONE_CALL") await notify({ workspaceId, type: "MEETING_REQUESTED", title: `${business?.name ?? message.fromAddress} wants to ${intent === "REQUEST_FOR_MEETING" ? "meet" : "talk by phone"}`, body: contextResolution || newText.slice(0, 140), link: `/inbox/${conv.id}` });
+  if (isHot && !quiet) await notify({ workspaceId, type: "HOT_LEAD", title: `Hot lead: ${business?.name ?? message.fromAddress}`, body: summary || newText.slice(0, 140), link: `/inbox/${conv.id}` });
+  if (!quiet && (intent === "REQUEST_FOR_MEETING" || intent === "REQUEST_FOR_PHONE_CALL")) await notify({ workspaceId, type: "MEETING_REQUESTED", title: `${business?.name ?? message.fromAddress} wants to ${intent === "REQUEST_FOR_MEETING" ? "meet" : "talk by phone"}`, body: contextResolution || newText.slice(0, 140), link: `/inbox/${conv.id}` });
 
   // ── Draft ──
   const blockedForDraft =
@@ -241,7 +247,7 @@ HARD RULES — never break them
         confidence,
         leadScore,
         recommendedAction: recommended,
-        requiresReview: !decision.autoSend,
+        requiresReview: !(decision.autoSend && !quiet),
         reviewReasons: Array.from(new Set(reviewReasons)),
         missingInfo,
         subject: message.subject.toLowerCase().startsWith("re:") ? message.subject : `Re: ${message.subject}`,
@@ -259,12 +265,12 @@ HARD RULES — never break them
       lastIntent: intent,
       lastConfidence: confidence,
       isHot,
-      needsHumanReview: needsHumanReview && !decision.autoSend,
+      needsHumanReview: needsHumanReview && !(decision.autoSend && !quiet),
       reviewReason: needsHumanReview ? Array.from(new Set([...rules.sensitive.map((s) => s.reason), ...reviewReasons])).join("; ") || "Low confidence" : blockedForDraft && responseNeeded ? blockedForDraft : null,
     },
   });
 
-  if (decision.autoSend && draftId && business?.email) {
+  if (decision.autoSend && draftId && business && !quiet) {
     try {
       const { sendEmail } = await import("../email/send");
       const draft = await db.aiResponseDraft.findUniqueOrThrow({ where: { id: draftId } });
@@ -279,9 +285,9 @@ HARD RULES — never break them
   }
 
   if (draftId && business) await changeLeadStatus({ workspaceId, businessId: business.id, to: "AI_RESPONSE_READY", automatic: true, reason: "AI draft ready for approval" });
-  await notify({ workspaceId, type: "NEW_RESPONSE", title: `${business?.name ?? message.fromAddress} replied`, body: summary || newText.slice(0, 160), link: `/inbox/${conv.id}` });
-  if (draftId) await notify({ workspaceId, type: "AI_DRAFT_READY", title: `AI response ready for ${business?.name ?? message.fromAddress}`, body: needsHumanReview ? "Human review required before sending." : "Review and approve to send.", link: `/inbox/${conv.id}` });
-  if (needsHumanReview) await notify({ workspaceId, type: "HUMAN_REVIEW", title: `Review needed: ${business?.name ?? message.fromAddress}`, body: reviewReasons[0] ?? rules.sensitive[0]?.reason ?? "Low confidence", link: `/inbox/${conv.id}` });
+  if (!quiet) await notify({ workspaceId, type: "NEW_RESPONSE", title: `${business?.name ?? message.fromAddress} replied`, body: summary || newText.slice(0, 160), link: `/inbox/${conv.id}` });
+  if (draftId && !quiet) await notify({ workspaceId, type: "AI_DRAFT_READY", title: `AI response ready for ${business?.name ?? message.fromAddress}`, body: needsHumanReview ? "Human review required before sending." : "Review and approve to send.", link: `/inbox/${conv.id}` });
+  if (needsHumanReview && !quiet) await notify({ workspaceId, type: "HUMAN_REVIEW", title: `Review needed: ${business?.name ?? message.fromAddress}`, body: reviewReasons[0] ?? rules.sensitive[0]?.reason ?? "Low confidence", link: `/inbox/${conv.id}` });
   return { intent, confidence, draftId, autoSent: false, reviewReasons };
 }
 
@@ -310,5 +316,5 @@ function defaultAction(intent: Intent) {
 export async function regenerateDraft(workspaceId: string, conversationId: string) {
   const last = await db.emailMessage.findFirst({ where: { workspaceId, conversationId, direction: "INBOUND" }, orderBy: { createdAt: "desc" } });
   if (!last) throw new AppError("NOT_FOUND", "There is no inbound message to reply to.");
-  return analyzeInboundMessage(workspaceId, last.id);
+  return analyzeInboundMessage(workspaceId, last.id, { regenerate: true });
 }

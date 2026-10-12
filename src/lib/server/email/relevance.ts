@@ -132,7 +132,8 @@ export async function cleanupInbox(workspaceId: string, onProgress?: (p: { total
   const { company, automation } = await getSettings(workspaceId);
   const ai = automation.aiResponseAnalysis ? await getAi(workspaceId).catch(() => null) : null;
   const candidates = await db.conversation.findMany({
-    where: { workspaceId, filtered: false, businessId: null, messages: { none: { direction: "OUTBOUND" } } },
+    // Conversations a team member moved back to the inbox are never re-filtered.
+    where: { workspaceId, filtered: false, businessId: null, messages: { none: { direction: "OUTBOUND" } }, OR: [{ filterReason: null }, { NOT: { filterReason: { startsWith: "Kept in the inbox" } } }] },
     orderBy: { lastMessageAt: "desc" },
     take: 500,
     select: { id: true, counterpartEmail: true, messages: { where: { direction: "INBOUND" }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true, subject: true, bodyText: true, analysis: true } } },

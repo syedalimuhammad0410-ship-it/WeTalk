@@ -45,8 +45,8 @@ export async function followUpStopReason(f: FollowUp): Promise<string | null> {
   const sent = await db.emailMessage.count({ where: { businessId: b.id, kind: "FOLLOW_UP", status: "SENT" } });
   if (sent >= compliance.maxFollowUps) return `Maximum follow-ups (${compliance.maxFollowUps}) reached`;
   if (f.campaignId) {
-    const c = await db.campaign.findUnique({ where: { id: f.campaignId } });
-    if (c && c.status === "PAUSED") return null; // paused: leave scheduled (handled by caller)
+    const c = await db.campaign.findUnique({ where: { id: f.campaignId }, select: { status: true } });
+    if (c?.status === "COMPLETED") return "Campaign completed";
   }
   return null;
 }
@@ -63,16 +63,14 @@ async function followUpContent(f: FollowUp) {
 /** Processes due follow-ups for all workspaces (or one). Safe to run repeatedly. */
 export async function dispatchDueFollowUps(workspaceId?: string) {
   const due = await db.followUp.findMany({
-    where: { status: "SCHEDULED", scheduledFor: { lte: new Date() }, ...(workspaceId ? { workspaceId } : {}) },
+    // Paused campaigns hold their follow-ups; excluding them here keeps them from blocking everyone else's.
+    where: { status: "SCHEDULED", scheduledFor: { lte: new Date() }, ...(workspaceId ? { workspaceId } : {}), OR: [{ campaignId: null }, { campaign: { status: { not: "PAUSED" } } }] },
     orderBy: { scheduledFor: "asc" },
     take: 50,
+    include: { campaign: { select: { followUpMode: true } } },
   });
   const result = { sent: 0, pendingApproval: 0, cancelled: 0, postponed: 0, failed: 0 };
   for (const f of due) {
-    if (f.campaignId) {
-      const c = await db.campaign.findUnique({ where: { id: f.campaignId } });
-      if (c?.status === "PAUSED") continue;
-    }
     const stop = await followUpStopReason(f);
     if (stop) {
       await db.followUp.update({ where: { id: f.id }, data: { status: "CANCELLED", cancelReason: stop } });
@@ -88,7 +86,8 @@ export async function dispatchDueFollowUps(workspaceId?: string) {
       result.failed++;
       continue;
     }
-    if (!f.automatic || !automation.automaticFollowUps) {
+    const automatic = f.automatic && automation.automaticFollowUps && (!f.campaign || f.campaign.followUpMode === "AUTOMATIC");
+    if (!automatic) {
       await db.followUp.update({ where: { id: f.id }, data: { status: "PENDING_APPROVAL", subject: content.subject, body: content.body } });
       await notify({ workspaceId: f.workspaceId, type: "FOLLOW_UP_DUE", title: `Follow-up due: ${content.business.name}`, body: `Step ${f.step} is ready for your approval.`, link: "/follow-ups" });
       result.pendingApproval++;

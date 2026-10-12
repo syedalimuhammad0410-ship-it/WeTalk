@@ -5,6 +5,19 @@ import { logActivity } from "../activity";
 import { changeLeadStatus } from "../leads";
 import { sendEmail } from "../email/send";
 
+/** Replies go to whoever wrote last in the thread (e.g. the owner answering from their own address). */
+export async function replyAddress(conversationId: string, fallback: string) {
+  const last = await db.emailMessage.findFirst({ where: { conversationId, direction: "INBOUND" }, orderBy: { createdAt: "desc" }, select: { fromAddress: true } });
+  return last?.fromAddress || fallback;
+}
+
+/** After a human answers (or drops the AI draft), the lead is no longer "AI response ready". */
+export async function settleAfterReply(workspaceId: string, businessId: string | null, userId: string) {
+  if (!businessId) return;
+  const b = await db.business.findUnique({ where: { id: businessId }, select: { status: true } });
+  if (b?.status === "AI_RESPONSE_READY") await changeLeadStatus({ workspaceId, businessId, to: "RESPONDED", userId, reason: "Reply handled by a team member" });
+}
+
 export async function approveDraft(workspaceId: string, draftId: string, userId: string, edits?: { subject?: string; body?: string }) {
   const draft = await db.aiResponseDraft.findFirst({ where: { id: draftId, workspaceId }, include: { conversation: true } });
   if (!draft) throw new AppError("NOT_FOUND", "Draft not found.");
@@ -13,7 +26,7 @@ export async function approveDraft(workspaceId: string, draftId: string, userId:
   const sent = await sendEmail({
     workspaceId,
     userId,
-    to: draft.conversation.counterpartEmail,
+    to: await replyAddress(draft.conversationId, draft.conversation.counterpartEmail),
     subject: edits?.subject?.trim() || draft.subject,
     body: edits?.body?.trim() || draft.body,
     kind: "AI_REPLY",
@@ -37,6 +50,7 @@ export async function rejectDraft(workspaceId: string, draftId: string, userId: 
   if (draft.status !== "PENDING") throw new AppError("CONFLICT", "This draft is no longer pending.");
   await db.aiResponseDraft.update({ where: { id: draftId }, data: { status: "REJECTED", decidedById: userId, decidedAt: new Date() } });
   await logActivity({ workspaceId, userId, businessId: draft.businessId, action: "ai.response_rejected", summary: "AI response draft rejected" });
+  await settleAfterReply(workspaceId, draft.businessId, userId);
 }
 
 export async function setConversationControl(workspaceId: string, conversationId: string, userId: string, action: "PAUSE_AI" | "RESUME_AI" | "TAKE_OVER" | "RELEASE" | "DO_NOT_CONTACT" | "MARK_READ" | "CLOSE" | "REOPEN" | "FILTER" | "UNFILTER") {
@@ -57,7 +71,7 @@ export async function setConversationControl(workspaceId: string, conversationId
       await db.aiResponseDraft.updateMany({ where: { conversationId: conv.id, status: "PENDING" }, data: { status: "SUPERSEDED" } });
       break;
     case "UNFILTER": {
-      await db.conversation.update({ where: { id: conv.id }, data: { filtered: false, filterReason: null, isOpen: true, unread: true, needsHumanReview: !bid, reviewReason: bid ? conv.reviewReason : "Moved to the inbox manually — not linked to a lead yet" } });
+      await db.conversation.update({ where: { id: conv.id }, data: { filtered: false, filterReason: "Kept in the inbox by a team member", isOpen: true, unread: true, needsHumanReview: !bid, reviewReason: bid ? conv.reviewReason : "Moved to the inbox manually — not linked to a lead yet" } });
       // It was never analysed while filtered: analyse the latest inbound message now.
       const last = await db.emailMessage.findFirst({ where: { conversationId: conv.id, direction: "INBOUND" }, orderBy: { createdAt: "desc" }, select: { id: true, fromAddress: true } });
       if (last) {

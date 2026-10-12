@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GripVertical } from "lucide-react";
@@ -20,6 +20,8 @@ export function PipelineBoard({ columns: initial, perms }: { columns: Column[]; 
   const router = useRouter();
   const toast = useToast();
   const [columns, setColumns] = useState(initial);
+  // Filters, search and refreshes bring new columns from the server.
+  useEffect(() => setColumns(initial), [initial]);
   const [drag, setDrag] = useState<{ id: string; from: LeadStatusT } | null>(null);
   const [over, setOver] = useState<LeadStatusT | null>(null);
   const [reverse, setReverse] = useState<{ id: string; to: LeadStatusT } | null>(null);
@@ -81,7 +83,7 @@ export function PipelineBoard({ columns: initial, perms }: { columns: Column[]; 
                       <div className="truncate text-xs text-muted">{[l.category, l.city].filter(Boolean).join(" · ") || "—"}</div>
                       <div className="mt-2 flex items-center justify-between text-xs text-muted">
                         <span>Opp <ScoreBadge score={l.opportunityScore} /></span>
-                        <span title={new Date(l.statusChangedAt).toLocaleString()}><RelTime d={l.statusChangedAt} /></span>
+                        <RelTime d={l.statusChangedAt} />
                       </div>
                     </div>
                   </div>

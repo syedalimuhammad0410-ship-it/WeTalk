@@ -10,7 +10,8 @@ import { LeadDetail } from "@/components/leads/lead-detail";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const b = await db.business.findUnique({ where: { id }, select: { name: true } });
+  const ctx = await pageContext();
+  const b = await db.business.findFirst({ where: { id, workspaceId: ctx.workspace.id }, select: { name: true } });
   return { title: b?.name ?? "Lead" };
 }
 

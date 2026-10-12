@@ -1,11 +1,11 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Hand, Pencil, ShieldAlert, X } from "lucide-react";
 import { Card, EmptyState, Badge } from "../ui/misc";
-import { Button } from "../ui/button";
+import { Button, ButtonLink } from "../ui/button";
 import { Textarea } from "../ui/form";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
@@ -36,6 +36,8 @@ function ReviewCard({ c, perms }: { c: any; perms: { approve: boolean; send: boo
   const draft = c.drafts[0];
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState<string>(draft?.body ?? "");
+  useEffect(() => { setBody(draft?.body ?? ""); setEditing(false); }, [draft?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const edited = Boolean(draft) && body.trim() !== "" && body !== draft.body;
   const [busy, setBusy] = useState<string | null>(null);
   const run = async (key: string, fn: () => Promise<unknown>, ok: string) => {
     setBusy(key);
@@ -64,15 +66,16 @@ function ReviewCard({ c, perms }: { c: any; perms: { approve: boolean; send: boo
         </div>
         <div className="p-5">
           <div className="mb-1 text-xs font-medium uppercase tracking-wider text-faint">Suggested response</div>
-          {draft ? (editing ? <Textarea value={body} onChange={(e) => setBody(e.target.value)} className="min-h-[180px]" aria-label="Edit suggested response" /> : <p className="whitespace-pre-wrap text-sm">{draft.body}</p>) : <p className="text-sm text-muted">No AI draft — reply personally.</p>}
+          {draft ? (editing ? <Textarea value={body} onChange={(e) => setBody(e.target.value)} className="min-h-[180px]" aria-label="Edit suggested response" /> : <p className="whitespace-pre-wrap text-sm">{edited ? body : draft.body}</p>) : <p className="text-sm text-muted">No AI draft — reply personally.</p>}
           {draft?.missingInfo?.length > 0 && <p className="mt-2 text-xs text-warning">Needs information you haven&apos;t configured: {draft.missingInfo.join(", ")}</p>}
         </div>
       </div>
       <div className="flex flex-wrap gap-2 border-t border-border px-5 py-3">
-        {draft && perms.approve && <Button size="sm" loading={busy === "approve"} onClick={() => run("approve", () => apiFetch(`/api/drafts/${draft.id}/approve`, { body: editing ? { body } : {} }), "Response sent")}><CheckCircle2 className="h-4 w-4" /> Approve & Send</Button>}
+        {draft && perms.approve && <Button size="sm" loading={busy === "approve"} onClick={() => run("approve", () => apiFetch(`/api/drafts/${draft.id}/approve`, { body: edited ? { body } : {} }), "Response sent")}><CheckCircle2 className="h-4 w-4" /> Approve & Send</Button>}
         {draft && perms.approve && <Button size="sm" variant="outline" onClick={() => setEditing((v) => !v)}><Pencil className="h-4 w-4" /> {editing ? "Done editing" : "Edit"}</Button>}
         {draft && perms.approve && <Button size="sm" variant="outline" loading={busy === "reject"} onClick={() => run("reject", () => apiFetch(`/api/drafts/${draft.id}/reject`, { body: {} }), "Draft rejected")}><X className="h-4 w-4" /> Reject</Button>}
-        {perms.send && <Button size="sm" variant="ghost" loading={busy === "take"} onClick={() => run("take", () => apiFetch(`/api/conversations/${c.id}/control`, { body: { action: "TAKE_OVER" } }).then(() => router.push(`/inbox/${c.id}`)), "You've taken over this conversation")}><Hand className="h-4 w-4" /> Take Over</Button>}
+        {perms.send && !c.business && <ButtonLink size="sm" variant="ghost" href={`/inbox/${c.id}`}><Hand className="h-4 w-4" /> Link to a lead</ButtonLink>}
+        {perms.send && c.business && <Button size="sm" variant="ghost" loading={busy === "take"} onClick={() => run("take", () => apiFetch(`/api/conversations/${c.id}/control`, { body: { action: "TAKE_OVER" } }).then(() => router.push(`/inbox/${c.id}`)), "You've taken over this conversation")}><Hand className="h-4 w-4" /> Take Over</Button>}
       </div>
     </Card>
   );

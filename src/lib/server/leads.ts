@@ -244,7 +244,9 @@ export async function changeLeadStatus(input: {
   if (input.automatic) {
     if (TERMINAL.includes(from)) return business;
     if (business.doNotContact && input.to !== "DO_NOT_CONTACT") return business;
-    if (STATUS_RANK[input.to] <= STATUS_RANK[from] && !["FOLLOW_UP", "AI_RESPONSE_READY", "RESPONDED"].includes(input.to)) return business;
+    // Automatic moves never go backwards, except shuffling between the reply stages before a lead is interested.
+    const replyStage = ["FOLLOW_UP", "AI_RESPONSE_READY", "RESPONDED"].includes(input.to) && STATUS_RANK[from] < STATUS_RANK.INTERESTED;
+    if (STATUS_RANK[input.to] <= STATUS_RANK[from] && !replyStage) return business;
   }
   const data: Prisma.BusinessUpdateInput = { status: input.to, statusChangedAt: new Date() };
   if (input.to === "DO_NOT_CONTACT") {

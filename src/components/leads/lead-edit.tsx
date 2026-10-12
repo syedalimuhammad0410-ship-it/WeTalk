@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
 import { Dialog } from "../ui/dialog";
@@ -15,6 +15,8 @@ export function EditLeadDialog({ open, onClose, data }: { open: boolean; onClose
   const b = data.business;
   const init = { name: b.name ?? "", category: b.category ?? "", businessType: b.businessType ?? "general", address: b.address ?? "", city: b.city ?? "", region: b.region ?? "", phone: b.phone ?? "", website: b.website ?? "", email: b.email ?? "", emailSource: b.emailSource ?? "", assignedToId: b.assignedToId ?? "" };
   const [f, setF] = useState(init);
+  // Each time the dialog opens it starts from the lead's current values (cancelled edits are discarded).
+  useEffect(() => { if (open) setF(init); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((s) => ({ ...s, [k]: e.target.value }));

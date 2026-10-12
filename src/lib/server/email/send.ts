@@ -92,6 +92,11 @@ export async function sendEmail(input: SendInput) {
   if (/\{\{\s*[a-z_]+\s*\}\}/.test(input.subject + input.body)) throw new AppError("VALIDATION", "The email still contains unfilled template variables ({{…}}). Edit them before sending.");
   const to = input.to.trim().toLowerCase();
   const finalBody = composeFinalBody(input.body, account, compliance, input.kind, Boolean(input.aiGenerated));
+  // Outreach drafted outside a campaign still belongs to the campaign the lead is in (most recently added).
+  if (!input.campaignId && input.businessId && input.kind === "OUTREACH") {
+    const member = await db.campaignLead.findFirst({ where: { businessId: input.businessId, campaign: { workspaceId: input.workspaceId } }, orderBy: { addedAt: "desc" }, select: { campaignId: true } });
+    if (member) input = { ...input, campaignId: member.campaignId };
+  }
 
   // Conversation + threading context
   let conversation = input.conversationId ? await db.conversation.findFirst({ where: { id: input.conversationId, workspaceId: input.workspaceId } }) : null;
@@ -148,7 +153,8 @@ export async function sendEmail(input: SendInput) {
     if (input.draftMessageId) {
       const d = await tx.emailMessage.findFirst({ where: { id: input.draftMessageId, workspaceId: input.workspaceId, status: "DRAFT" } });
       if (!d) throw new AppError("CONFLICT", "This draft was already sent or deleted.");
-      return tx.emailMessage.update({ where: { id: d.id }, data: msgData });
+      // createdAt marks when the send was queued: sending limits and spacing count from it.
+      return tx.emailMessage.update({ where: { id: d.id }, data: { ...msgData, createdAt: new Date() } });
     }
     return tx.emailMessage.create({ data: msgData });
   });

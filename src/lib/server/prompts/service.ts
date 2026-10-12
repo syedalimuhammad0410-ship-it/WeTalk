@@ -261,10 +261,10 @@ export async function transformPrompt(workspaceId: string, promptId: string, op:
   if (ai) {
     const r = await aiRewrite(ai, ctx, current, instructions[op], `prompt_${op.toLowerCase()}`);
     notes.push(r.note);
-    if (r.content) {
-      content = r.content;
-      generator = "AI";
-    } else content = composeMasterPrompt(ctx);
+    // Never replace the user's current prompt with a rebuild when the AI rewrite is rejected.
+    if (!r.content) throw new AppError("UPSTREAM_ERROR", `${r.note.replace(/; kept the previous version\.$/, ".")} Your current prompt was not changed — try again.`);
+    content = r.content;
+    generator = "AI";
   } else {
     content = composeMasterPrompt(ctx);
     if (op === "IMPROVE") {

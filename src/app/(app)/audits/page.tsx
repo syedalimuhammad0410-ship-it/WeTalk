@@ -19,7 +19,8 @@ export default async function AuditsPage({ searchParams }: { searchParams: Promi
   const [audits, total, unaudited, byClass] = await Promise.all([
     db.websiteAudit.findMany({ where: { workspaceId: ws }, orderBy: { createdAt: "desc" }, skip: (page - 1) * 40, take: 40, include: { business: { select: { id: true, name: true, city: true, opportunityScore: true } } } }),
     db.websiteAudit.count({ where: { workspaceId: ws } }),
-    db.business.findMany({ where: { workspaceId: ws, archived: false, websiteClass: null }, select: { id: true }, take: 1000 }),
+    // Unaudited = never audited (leads without a website count too: the audit scores their opportunity).
+    db.business.findMany({ where: { workspaceId: ws, archived: false, audits: { none: {} } }, select: { id: true }, take: 5000 }),
     db.business.groupBy({ by: ["websiteClass"], where: { workspaceId: ws, archived: false, websiteClass: { not: null } }, _count: true }),
   ]);
   return (

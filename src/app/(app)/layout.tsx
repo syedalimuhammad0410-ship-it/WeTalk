@@ -10,8 +10,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   kickRunner();
   const [memberships, unread, review, followups, defaultAccount] = await Promise.all([
     db.workspaceMember.findMany({ where: { userId: ctx.user.id }, include: { workspace: { select: { id: true, name: true, isDemo: true } } }, orderBy: { createdAt: "asc" } }),
-    db.conversation.count({ where: { workspaceId: ctx.workspace.id, unread: true } }),
-    db.conversation.count({ where: { workspaceId: ctx.workspace.id, needsHumanReview: true, unread: false } }),
+    db.conversation.count({ where: { workspaceId: ctx.workspace.id, unread: true, filtered: false } }),
+    db.conversation.count({ where: { workspaceId: ctx.workspace.id, needsHumanReview: true, unread: false, filtered: false } }),
     db.followUp.count({ where: { workspaceId: ctx.workspace.id, status: "PENDING_APPROVAL" } }),
     db.emailAccount.findFirst({ where: { workspaceId: ctx.workspace.id, isDefault: true }, select: { provider: true } }),
   ]);

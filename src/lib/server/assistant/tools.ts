@@ -337,7 +337,7 @@ export const TOOLS = [
       assertCan(ctx, "emails.send");
       const { approveDraft } = await import("../replies/actions");
       const r = await approveDraft(ctx.workspace.id, a.draftId, ctx.user.id);
-      return { sent: true, result: r };
+      return { sent: true, sandbox: r.sandbox, link: `/inbox/${r.message.conversationId}` };
     },
   }),
   tool({

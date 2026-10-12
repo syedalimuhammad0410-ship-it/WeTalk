@@ -67,7 +67,7 @@ export function LeadsTable({ data, options, perms, onPage }: { data: { total: nu
                   <td className="text-right"><ScoreBadge score={r.opportunityScore} label="Opportunity score" /></td>
                   <td><StatusBadge status={r.status} /></td>
                   <td className="whitespace-nowrap text-xs text-muted">
-                    {r.doNotContact ? <span className="inline-flex items-center gap-1 text-danger"><ShieldOff className="h-3.5 w-3.5" /> Do not contact</span> : r.email ? <span className="inline-flex items-center gap-1"><Mail className="h-3.5 w-3.5" /> {r.lastResponseAt ? "Replied" : r.lastContactedAt ? `Contacted $<RelTime d={r.lastContactedAt} />` : "Has email"}</span> : "Not found"}
+                    {r.doNotContact ? <span className="inline-flex items-center gap-1 text-danger"><ShieldOff className="h-3.5 w-3.5" /> Do not contact</span> : r.email ? <span className="inline-flex items-center gap-1"><Mail className="h-3.5 w-3.5" /> {r.lastResponseAt ? "Replied" : r.lastContactedAt ? <>Contacted <RelTime d={r.lastContactedAt} /></> : "Has email"}</span> : "Not found"}
                   </td>
                   <td className="whitespace-nowrap text-xs text-muted"><RelTime d={r.discoveredAt} /></td>
                 </tr>

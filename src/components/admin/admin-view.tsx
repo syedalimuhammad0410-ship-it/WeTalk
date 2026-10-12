@@ -76,7 +76,7 @@ export function AdminView({ data }: { data: any }) {
           )}
           <Card><CardHeader title="Recent jobs" />
             <div className="overflow-x-auto"><table className="table-base"><thead><tr><th>Job</th><th>Status</th><th>Progress</th><th>Started</th><th>Finished</th></tr></thead><tbody>
-              {data.jobs.map((j: any) => <tr key={j.id}><td>{j.label}<div className="text-xs text-muted">{j.type}</div></td><td><Badge tone={{ COMPLETED: "green", FAILED: "red", RUNNING: "blue", QUEUED: "slate", CANCELLED: "zinc" }[j.status as string] as any}>{j.status.toLowerCase()}</Badge></td><td className="tabular-nums">{j.progress}%</td><td className="text-xs"><RelTime d={j.createdAt} /></td><td className="text-xs">{j.finishedAt ? timeAgo(j.finishedAt) : "—"}</td></tr>)}
+              {data.jobs.map((j: any) => <tr key={j.id}><td>{j.label}<div className="text-xs text-muted">{j.type}</div></td><td><Badge tone={{ COMPLETED: "green", FAILED: "red", RUNNING: "blue", QUEUED: "slate", CANCELLED: "zinc" }[j.status as string] as any}>{j.status.toLowerCase()}</Badge></td><td className="tabular-nums">{j.progress}%</td><td className="text-xs"><RelTime d={j.createdAt} /></td><td className="text-xs">{j.finishedAt ? <RelTime d={j.finishedAt} /> : "—"}</td></tr>)}
             </tbody></table></div>
           </Card>
         </div>

@@ -26,6 +26,9 @@ export function Conversation({ conv, followUps, leadOptions, perms }: { conv: an
   const lastInbound = [...conv.messages].reverse().find((m: any) => m.direction === "INBOUND");
   const [draftBody, setDraftBody] = useState<string>(pending?.body ?? "");
   const [editingDraft, setEditingDraft] = useState(false);
+  // A regenerated draft replaces the text being edited.
+  useEffect(() => { setDraftBody(pending?.body ?? ""); setEditingDraft(false); }, [pending?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const draftEdited = Boolean(pending) && draftBody.trim() !== "" && draftBody !== pending.body;
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [simulate, setSimulate] = useState(false);
@@ -115,19 +118,20 @@ export function Conversation({ conv, followUps, leadOptions, perms }: { conv: an
       {pending && (
         <Card className="p-4">
           <div className="mb-2 flex items-center justify-between"><span className="flex items-center gap-1.5 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-500" /> AI draft</span><span className="text-xs text-muted">{pending.confidence}% · <RelTime d={pending.createdAt} /></span></div>
-          {editingDraft ? <Textarea value={draftBody} onChange={(e) => setDraftBody(e.target.value)} className="min-h-[220px] text-sm" aria-label="Edit AI draft" /> : <p className="whitespace-pre-wrap rounded-lg bg-subtle p-3 text-sm">{pending.body}</p>}
+          {editingDraft ? <Textarea value={draftBody} onChange={(e) => setDraftBody(e.target.value)} className="min-h-[220px] text-sm" aria-label="Edit AI draft" /> : <p className="whitespace-pre-wrap rounded-lg bg-subtle p-3 text-sm">{draftEdited ? draftBody : pending.body}</p>}
+          {draftEdited && !editingDraft && <p className="mt-1 text-xs text-muted">Edited — your version will be sent.</p>}
           {pending.missingInfo?.length > 0 && <p className="mt-2 text-xs text-warning">Missing configured info: {pending.missingInfo.join(", ")}. The draft avoids inventing it.</p>}
           {pending.reviewReasons?.length > 0 && <ul className="mt-2 space-y-0.5 text-[11px] text-muted">{pending.reviewReasons.map((r: string) => <li key={r}>• {r}</li>)}</ul>}
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {perms.approve && <Button size="sm" loading={busy === "approve"} onClick={() => run("approve", () => apiFetch(`/api/drafts/${pending.id}/approve`, { body: editingDraft ? { body: draftBody } : {} }), (r) => (r?.sandbox ? "Sent (sandbox — not delivered)" : "Response sent"))}><CheckCircle2 className="h-4 w-4" /> Approve & Send</Button>}
+            {perms.approve && <Button size="sm" loading={busy === "approve"} onClick={() => run("approve", () => apiFetch(`/api/drafts/${pending.id}/approve`, { body: draftEdited ? { body: draftBody } : {} }), (r) => (r?.sandbox ? "Sent (sandbox — not delivered)" : "Response sent"))}><CheckCircle2 className="h-4 w-4" /> Approve & Send</Button>}
             {perms.compose && <Button size="sm" variant="outline" onClick={() => setEditingDraft((v) => !v)}><Pencil className="h-4 w-4" /> {editingDraft ? "Preview" : "Edit"}</Button>}
             {perms.compose && <Button size="sm" variant="outline" loading={busy === "regen"} loadingText="Generating response…" onClick={() => run("regen", () => apiFetch(`/api/conversations/${conv.id}/regenerate`, { body: {} }), "New draft generated")}><RefreshCcw className="h-4 w-4" /> Regenerate</Button>}
-            <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(editingDraft ? draftBody : pending.body); toast.success("Draft copied"); }}><Copy className="h-4 w-4" /> Copy</Button>
+            <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(draftEdited ? draftBody : pending.body); toast.success("Draft copied"); }}><Copy className="h-4 w-4" /> Copy</Button>
             {perms.approve && <Button size="sm" variant="ghost" loading={busy === "reject"} onClick={() => run("reject", () => apiFetch(`/api/drafts/${pending.id}/reject`, { body: {} }), "Draft rejected")}><X className="h-4 w-4" /> Reject</Button>}
           </div>
         </Card>
       )}
-      {!pending && lastInbound && perms.compose && !b?.doNotContact && (
+      {!pending && lastInbound && perms.compose && !b?.doNotContact && !conv.filtered && (
         <Button variant="outline" className="w-full" loading={busy === "regen"} loadingText="Generating response…" onClick={() => run("regen", () => apiFetch(`/api/conversations/${conv.id}/regenerate`, { body: {} }), "Analysis refreshed")}><Sparkles className="h-4 w-4" /> Generate AI response</Button>
       )}
       {perms.send && b && b.doNotContact && <Card className="p-4 text-sm text-muted">AI is disabled because this business is marked Do Not Contact. An admin can reverse that from the lead page (with a recorded reason).</Card>}

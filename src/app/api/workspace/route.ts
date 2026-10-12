@@ -8,6 +8,11 @@ import { logActivity } from "@/lib/server/activity";
 export const PATCH = api({}, async (req, ctx) => {
   const body = await parseBody(req, z.object({ name: z.string().trim().min(2).max(80).optional(), onboardingStep: z.number().int().min(1).max(10).optional(), onboardingCompleted: z.boolean().optional() }));
   if (body.name) assertCan(ctx, "users.manage");
+  // Re-running setup sends every member to the wizard, so only admins may do it; it restarts at the first step.
+  if (body.onboardingCompleted === false) {
+    assertCan(ctx, "users.manage");
+    body.onboardingStep = 2;
+  }
   await db.workspace.update({ where: { id: ctx.workspace.id }, data: body });
   return { ok: true };
 });

@@ -11,10 +11,11 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const c = await db.campaign.findFirst({ where: { id, workspaceId: ctx.workspace.id } });
   if (!c) notFound();
-  const [stats, leads, templates] = await Promise.all([
+  const [stats, leads, allIds, templates] = await Promise.all([
     campaignStats(ctx.workspace.id, id),
     db.business.findMany({ where: { workspaceId: ctx.workspace.id, campaignLeads: { some: { campaignId: id } } }, orderBy: { opportunityScore: { sort: "desc", nulls: "last" } }, take: 300, select: { id: true, name: true, city: true, status: true, opportunityScore: true, websiteClass: true, websiteStatus: true, email: true, doNotContact: true } }),
+    db.campaignLead.findMany({ where: { campaignId: id, business: { workspaceId: ctx.workspace.id } }, select: { businessId: true } }),
     db.emailTemplate.findMany({ where: { workspaceId: ctx.workspace.id, kind: "OUTREACH" }, select: { id: true, name: true } }),
   ]);
-  return <CampaignDetail campaign={JSON.parse(JSON.stringify(c))} stats={stats} leads={JSON.parse(JSON.stringify(leads))} templates={templates} perms={{ manage: ctx.can("campaigns.manage"), del: ctx.can("leads.delete"), send: ctx.can("emails.send") }} />;
+  return <CampaignDetail campaign={JSON.parse(JSON.stringify(c))} stats={stats} leads={JSON.parse(JSON.stringify(leads))} leadIds={allIds.map((l) => l.businessId)} templates={templates} perms={{ manage: ctx.can("campaigns.manage"), del: ctx.can("leads.delete"), send: ctx.can("emails.send") }} />;
 }

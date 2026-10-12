@@ -115,7 +115,7 @@ function Workspace({ d }: { d: D }) {
       <Section title="Workspace" footer={can(d, "users.manage") && <Button loading={busy} onClick={() => save({ name })}>Save</Button>}>
         <Field label="Workspace name" htmlFor="w-n"><Input id="w-n" value={name} onChange={(e) => setName(e.target.value)} readOnly={!can(d, "users.manage")} /></Field>
         {d.workspace.isDemo && <Alert tone="warning" title="This is a DEMO DATA workspace." >It is separate from your real workspaces.</Alert>}
-        <Button variant="outline" onClick={() => { apiFetch("/api/workspace", { method: "PATCH", body: { onboardingCompleted: false } }).then(() => router.push("/onboarding")); }}>Re-run setup wizard</Button>
+        {can(d, "users.manage") && <Button variant="outline" onClick={() => { apiFetch("/api/workspace", { method: "PATCH", body: { onboardingCompleted: false } }).then(() => router.push("/onboarding")); }}>Re-run setup wizard</Button>}
       </Section>
       {can(d, "workspace.delete") && (
         <Section title="Danger zone">
@@ -271,7 +271,7 @@ function EmailSettings({ d }: { d: D }) {
                 <div>Reply-to: {a.replyTo || "same as sender"}</div>
                 <div>Daily limit: {d.settings.compliance.maxEmailsPerDay}/day · {d.settings.compliance.maxEmailsPerHour}/hour</div>
                 <div>Automatic responses: {d.settings.automation.automaticReplies && d.settings.automation.responseMode === "AUTOMATIC" ? "On (strict rules)" : "Off"}</div>
-                {a.provider === "GMAIL" && <div>Last inbox check: {a.lastSyncAt ? timeAgo(a.lastSyncAt) : "never"}</div>}
+                {a.provider === "GMAIL" && <div>Last inbox check: {a.lastSyncAt ? <RelTime d={a.lastSyncAt} /> : "never"}</div>}
                 {a.provider === "POSTMARK" && <div>Reply routing: {a.inboundAddress ? `${a.inboundAddress} (+tracking hash)` : "by headers & sender"}</div>}
               </dl>
               {a.lastError && <p className="mt-2 text-xs text-danger">{a.lastError}</p>}

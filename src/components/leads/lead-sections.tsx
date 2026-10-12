@@ -288,7 +288,7 @@ export function PromptTab({ data, perms, onGenerate, busy }: { data: LeadData; p
     <Card>
       <CardHeader
         title={p.title}
-        description={`Version ${p.latest.version} · ${p.latest.wordCount.toLocaleString()} words · ${p.latest.generator === "AI" ? "AI-enhanced" : p.latest.generator === "MANUAL" ? "Manually edited" : "Rule-based"} · updated $<RelTime d={p.updatedAt} />`}
+        description={<>{`Version ${p.latest.version} · ${p.latest.wordCount.toLocaleString("en-US")} words · ${p.latest.generator === "AI" ? "AI-enhanced" : p.latest.generator === "MANUAL" ? "Manually edited" : "Rule-based"} · updated `}<RelTime d={p.updatedAt} /></>}
         action={<>
           <Badge tone={(p.qualityScore ?? 0) >= 85 ? "green" : "amber"}>Quality {p.qualityScore ?? "—"}/100</Badge>
           <Button size="sm" variant="outline" onClick={async () => { const r = await fetch(`/api/prompts/${p.id}/download`); const t = await r.text(); await navigator.clipboard.writeText(t); toast.success("Full prompt copied"); }}><Copy className="h-4 w-4" /> Copy</Button>

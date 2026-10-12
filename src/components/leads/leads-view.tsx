@@ -34,6 +34,9 @@ export function LeadsView({ view, data, columns, options, perms, openAdd }: { vi
   const toast = useToast();
   const [pending, start] = useTransition();
   const [q, setQ] = useState(sp.get("q") ?? "");
+  // Keep the search box in step with the URL (Clear all, saved filters, back/forward).
+  const urlQ = sp.get("q") ?? "";
+  useEffect(() => setQ(urlQ), [urlQ]);
   const [showFilters, setShowFilters] = useState(false);
   const [adding, setAdding] = useState(openAdd);
   const [importing, setImporting] = useState(false);
@@ -113,7 +116,7 @@ export function LeadsView({ view, data, columns, options, perms, openAdd }: { vi
             <EmptyState icon={<Search className="h-5 w-5" />} title="No businesses yet." description="Discover businesses with Google Places, add one manually, or import a CSV." action={<div className="flex gap-2"><Link href="/discover" className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-sm font-medium text-accent-fg">Find your first businesses</Link>{perms.edit && <Button variant="outline" onClick={() => setAdding(true)}>Add manually</Button>}</div>} />
           </Card>
         ) : (
-          <LeadsTable data={data} options={options} perms={perms} onPage={(p) => setParams({ page: String(p) }, false)} />
+          <LeadsTable key={sp.toString()} data={data} options={options} perms={perms} onPage={(p) => setParams({ page: String(p) }, false)} />
         ))}
         {view === "pipeline" && columns && <PipelineBoard columns={columns} perms={perms} />}
       </div>

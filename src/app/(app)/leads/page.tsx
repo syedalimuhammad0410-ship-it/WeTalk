@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { pageContext } from "@/lib/server/page";
-import { LeadFilters, listLeads, pipelineColumns } from "@/lib/server/queries";
+import { listLeads, parseLeadFilters, pipelineColumns } from "@/lib/server/queries";
 import { PLAYBOOKS } from "@/lib/server/intel/playbooks";
 import { PageHeader } from "@/components/ui/misc";
 import { LeadsView } from "@/components/leads/leads-view";
@@ -12,8 +12,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const flat: Record<string, string> = {};
   for (const [k, v] of Object.entries(sp)) if (typeof v === "string") flat[k] = v;
-  const parsed = LeadFilters.safeParse(flat);
-  const filters = parsed.success ? parsed.data : LeadFilters.parse({});
+  const filters = parseLeadFilters(flat);
   const view = flat.view === "pipeline" ? "pipeline" : "table";
   const ws = ctx.workspace.id;
   const [data, columns, tags, members, campaigns, savedFilters, templates] = await Promise.all([

@@ -7,6 +7,8 @@ import { LEAD_STATUSES } from "../constants";
 const csv = z.preprocess((v) => (Array.isArray(v) ? v : typeof v === "string" && v ? v.split(",") : []), z.array(z.string()));
 const optNum = z.preprocess((v) => (v === "" || v == null ? undefined : Number(v)), z.number().optional());
 const optDate = z.preprocess((v) => (v ? new Date(String(v)) : undefined), z.date().optional());
+/** End of the given day, so "to 2026-10-12" includes everything on the 12th. */
+const endOfDay = (d: Date | undefined) => (d ? new Date(d.getTime() + 86_400_000 - 1) : undefined);
 
 export const LeadFilters = z.object({
   q: z.string().trim().max(200).optional(),
@@ -69,8 +71,8 @@ export function leadWhere(workspaceId: string, f: Partial<LeadFiltersT>): Prisma
   if (f.response === "no_reply") and.push({ lastContactedAt: { not: null }, lastResponseAt: null });
   if (f.response === "not_contacted") and.push({ lastContactedAt: null });
   if (f.campaignId) and.push({ campaignLeads: { some: { campaignId: f.campaignId } } });
-  if (f.discoveredFrom || f.discoveredTo) and.push({ discoveredAt: { gte: f.discoveredFrom, lte: f.discoveredTo } });
-  if (f.contactedFrom || f.contactedTo) and.push({ lastContactedAt: { gte: f.contactedFrom, lte: f.contactedTo } });
+  if (f.discoveredFrom || f.discoveredTo) and.push({ discoveredAt: { gte: f.discoveredFrom, lte: endOfDay(f.discoveredTo) } });
+  if (f.contactedFrom || f.contactedTo) and.push({ lastContactedAt: { gte: f.contactedFrom, lte: endOfDay(f.contactedTo) } });
   if (f.assignedToId) and.push({ assignedToId: f.assignedToId === "unassigned" ? null : f.assignedToId });
   if (f.tagIds?.length) and.push({ tags: { some: { tagId: { in: f.tagIds } } } });
   if (f.hasEmail === "yes") and.push({ email: { not: null } });
@@ -79,13 +81,13 @@ export function leadWhere(workspaceId: string, f: Partial<LeadFiltersT>): Prisma
 }
 
 const SORTS: Record<NonNullable<LeadFiltersT["sort"]>, Prisma.BusinessOrderByWithRelationInput[]> = {
-  newest: [{ discoveredAt: "desc" }],
-  oldest: [{ discoveredAt: "asc" }],
-  opportunity: [{ opportunityScore: { sort: "desc", nulls: "last" } }, { discoveredAt: "desc" }],
-  website_score: [{ websiteScore: { sort: "asc", nulls: "last" } }],
-  name: [{ name: "asc" }],
-  last_contacted: [{ lastContactedAt: { sort: "desc", nulls: "last" } }],
-  lead_score: [{ leadScore: { sort: "desc", nulls: "last" } }],
+  newest: [{ discoveredAt: "desc" }, { id: "asc" }],
+  oldest: [{ discoveredAt: "asc" }, { id: "asc" }],
+  opportunity: [{ opportunityScore: { sort: "desc", nulls: "last" } }, { discoveredAt: "desc" }, { id: "asc" }],
+  website_score: [{ websiteScore: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+  name: [{ name: "asc" }, { id: "asc" }],
+  last_contacted: [{ lastContactedAt: { sort: "desc", nulls: "last" } }, { id: "asc" }],
+  lead_score: [{ leadScore: { sort: "desc", nulls: "last" } }, { id: "asc" }],
 };
 
 export async function listLeads(workspaceId: string, f: LeadFiltersT) {
@@ -129,15 +131,16 @@ export async function dashboardStats(workspaceId: string) {
   const base = { workspaceId, archived: false };
   const [businesses, analyzed, high, sent, responses, interested, meetings, customers, pendingDrafts, reviewQueue, dueFollowUps] = await Promise.all([
     db.business.count({ where: base }),
-    db.business.count({ where: { ...base, websiteClass: { not: null } } }),
+    db.business.count({ where: { ...base, audits: { some: { status: "COMPLETED" } } } }),
     db.business.count({ where: { ...base, opportunityScore: { gte: 70 } } }),
     db.emailMessage.count({ where: { workspaceId, direction: "OUTBOUND", status: "SENT" } }),
-    db.emailMessage.count({ where: { workspaceId, direction: "INBOUND" } }),
+    db.emailMessage.count({ where: { workspaceId, direction: "INBOUND", conversation: { filtered: false } } }),
     db.business.count({ where: { ...base, status: { in: ["INTERESTED", "MEETING", "PROPOSAL", "WON"] } } }),
-    db.leadStatusChange.groupBy({ by: ["businessId"], where: { workspaceId, toStatus: "MEETING" } }).then((r) => r.length),
+    // Leads that have had a meeting (including those since moved on to proposal or won).
+    db.leadStatusChange.groupBy({ by: ["businessId"], where: { workspaceId, toStatus: "MEETING", business: { archived: false } } }).then((r) => r.length),
     db.business.count({ where: { ...base, status: "WON" } }),
     db.aiResponseDraft.count({ where: { workspaceId, status: "PENDING" } }),
-    db.conversation.count({ where: { workspaceId, needsHumanReview: true } }),
+    db.conversation.count({ where: { workspaceId, needsHumanReview: true, filtered: false } }),
     db.followUp.count({ where: { workspaceId, status: "PENDING_APPROVAL" } }),
   ]);
   return { businesses, analyzed, high, sent, responses, interested, meetings, customers, pendingDrafts, reviewQueue, dueFollowUps };
@@ -154,7 +157,7 @@ export async function analytics(workspaceId: string, from: Date, to: Date) {
     db.business.count({ where: { workspaceId, discoveredAt: range, opportunityScore: { gte: 70 } } }),
     db.emailMessage.findMany({ where: { workspaceId, direction: "OUTBOUND", status: "SENT", sentAt: range }, select: { businessId: true, sentAt: true, kind: true, campaignId: true } }),
     db.emailMessage.count({ where: { workspaceId, direction: "OUTBOUND", status: { in: ["FAILED", "BOUNCED"] }, createdAt: range } }),
-    db.emailMessage.findMany({ where: { workspaceId, direction: "INBOUND", receivedAt: range }, select: { businessId: true, receivedAt: true, intent: true, campaignId: true, business: { select: { businessType: true, category: true } } } }),
+    db.emailMessage.findMany({ where: { workspaceId, direction: "INBOUND", receivedAt: range, conversation: { filtered: false } }, select: { businessId: true, receivedAt: true, intent: true, campaignId: true, business: { select: { businessType: true, category: true } } } }),
     db.emailMessage.findMany({ where: { workspaceId, direction: "OUTBOUND", status: "SENT", kind: "OUTREACH", sentAt: range }, select: { businessId: true, sentAt: true, campaignId: true }, distinct: ["businessId"] }),
     db.leadStatusChange.findMany({ where: { workspaceId, createdAt: range, toStatus: { in: ["MEETING", "WON", "INTERESTED"] } }, select: { businessId: true, toStatus: true, createdAt: true } }),
     db.business.aggregate({ where: { workspaceId, leadScore: { not: null } }, _avg: { leadScore: true } }),
@@ -239,7 +242,7 @@ export async function analytics(workspaceId: string, from: Date, to: Date) {
 
 export async function responseStats(workspaceId: string) {
   const [inbound, contacted, drafts, awaiting, review] = await Promise.all([
-    db.emailMessage.groupBy({ by: ["intent"], where: { workspaceId, direction: "INBOUND" }, _count: true }),
+    db.emailMessage.groupBy({ by: ["intent"], where: { workspaceId, direction: "INBOUND", conversation: { filtered: false } }, _count: true }),
     db.emailMessage.findMany({ where: { workspaceId, direction: "OUTBOUND", kind: "OUTREACH", status: "SENT" }, distinct: ["businessId"], select: { businessId: true } }),
     db.aiResponseDraft.count({ where: { workspaceId } }),
     db.aiResponseDraft.count({ where: { workspaceId, status: "PENDING" } }),
@@ -247,7 +250,7 @@ export async function responseStats(workspaceId: string) {
   ]);
   const by = (i: string) => inbound.find((g) => g.intent === i)?._count ?? 0;
   const total = inbound.reduce((s, g) => s + g._count, 0);
-  const repliedBiz = await db.emailMessage.findMany({ where: { workspaceId, direction: "INBOUND", businessId: { in: contacted.map((c) => c.businessId!).filter(Boolean) } }, distinct: ["businessId"], select: { businessId: true } });
+  const repliedBiz = await db.emailMessage.findMany({ where: { workspaceId, direction: "INBOUND", conversation: { filtered: false }, businessId: { in: contacted.map((c) => c.businessId!).filter(Boolean) } }, distinct: ["businessId"], select: { businessId: true } });
   return {
     total,
     responseRate: contacted.length ? repliedBiz.length / contacted.length : null,
@@ -305,4 +308,17 @@ export async function exportLeadsCsv(workspaceId: string, f: Partial<LeadFilters
     ].map(csvCell).join(","),
   );
   return { csv: [header.join(","), ...lines].join("\r\n") + "\r\n", count: rows.length };
+}
+
+/** Parses lead filters from the URL, dropping only the invalid parameters instead of every filter. */
+export function parseLeadFilters(raw: Record<string, string>): LeadFiltersT {
+  const input = { ...raw };
+  for (let i = 0; i < 20; i++) {
+    const r = LeadFilters.safeParse(input);
+    if (r.success) return r.data;
+    const bad = new Set(r.error.issues.map((x) => String(x.path[0] ?? "")));
+    if (![...bad].some((k) => k in input)) break;
+    for (const k of bad) delete input[k];
+  }
+  return LeadFilters.parse({});
 }

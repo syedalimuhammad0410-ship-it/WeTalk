@@ -149,7 +149,8 @@ describe("inbound matching and reply analysis", () => {
     expect(draft.body).not.toMatch(/\$\d/);
     expect(draft.missingInfo).toContain("pricing");
     expect(draft.requiresReview).toBe(true);
-    expect((await db.business.findUniqueOrThrow({ where: { id: b.id } })).status).toBe("AI_RESPONSE_READY");
+    // A pricing question marks the lead Interested; the draft being ready never moves it backwards.
+    expect((await db.business.findUniqueOrThrow({ where: { id: b.id } })).status).toBe("INTERESTED");
     const ap = await approveDraft(ws.id, draft.id, owner.id, { body: `${draft.body}\nWould a quick call help?` });
     expect(ap.message.kind).toBe("AI_REPLY");
     expect(ap.message.inReplyTo).toBe(`<in-${seq}@biz.test>`);

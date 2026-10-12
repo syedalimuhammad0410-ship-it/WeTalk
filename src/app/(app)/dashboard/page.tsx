@@ -59,7 +59,7 @@ export default async function DashboardPage() {
         <Stat label="Emails sent" value={formatNumber(stats.sent)} icon={<Send className="h-4 w-4" />} href="/analytics" />
         <Stat label="Responses" value={formatNumber(stats.responses)} icon={<MessageSquareReply className="h-4 w-4" />} href="/inbox" />
         <Stat label="Interested" value={formatNumber(stats.interested)} icon={<ThumbsUp className="h-4 w-4" />} href="/leads?status=INTERESTED,MEETING,PROPOSAL,WON" />
-        <Stat label="Meetings" value={formatNumber(stats.meetings)} icon={<CalendarCheck className="h-4 w-4" />} href="/leads?status=MEETING" />
+        <Stat label="Meetings" value={formatNumber(stats.meetings)} icon={<CalendarCheck className="h-4 w-4" />} href="/leads?status=MEETING,PROPOSAL,WON" />
         <Stat label="Customers" value={formatNumber(stats.customers)} icon={<Trophy className="h-4 w-4" />} href="/leads?status=WON" />
       </section>
 

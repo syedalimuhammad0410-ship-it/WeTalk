@@ -58,15 +58,17 @@ export function PromptEditor({ prompt, features, qualityLabels, canEdit }: Props
 
   const words = useMemo(() => content.split(/\s+/).filter(Boolean).length, [content]);
 
-  async function save() {
+  async function save(): Promise<boolean> {
     setBusy("save");
     try {
       const r = await apiFetch<{ version: number; quality?: number; unchanged?: boolean }>(`/api/prompts/${prompt.id}`, { method: "PUT", body: { content } });
       setBaseline(content);
       toast.success(r.unchanged ? "No changes to save" : `Saved as version ${r.version}`, r.quality ? `Quality ${r.quality}/100` : undefined);
       router.refresh();
+      return true;
     } catch (e) {
       toast.error("Not saved", (e as Error).message);
+      return false;
     } finally {
       setBusy(null);
     }
@@ -206,7 +208,7 @@ export function PromptEditor({ prompt, features, qualityLabels, canEdit }: Props
       <Dialog open={Boolean(viewing)} onClose={() => setViewing(null)} title={`Version ${viewing?.version}`} size="xl" footer={<Button variant="outline" onClick={() => { if (viewing) navigator.clipboard.writeText(viewing.content); toast.success("Copied"); }}><Copy className="h-4 w-4" /> Copy this version</Button>}>
         <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">{viewing?.content}</pre>
       </Dialog>
-      <ConfirmDialog open={Boolean(confirmOverwrite)} onClose={() => setConfirmOverwrite(null)} tone="primary" title="You have unsaved edits" confirmLabel="Save edits first, then continue" description="Your edits will be saved as a new version so nothing is lost." onConfirm={async () => { const fn = confirmOverwrite!; setConfirmOverwrite(null); await save(); fn(); }} />
+      <ConfirmDialog open={Boolean(confirmOverwrite)} onClose={() => setConfirmOverwrite(null)} tone="primary" title="You have unsaved edits" confirmLabel="Save edits first, then continue" description="Your edits will be saved as a new version so nothing is lost." onConfirm={async () => { const fn = confirmOverwrite!; setConfirmOverwrite(null); if (await save()) fn(); }} />
     </div>
   );
 }
