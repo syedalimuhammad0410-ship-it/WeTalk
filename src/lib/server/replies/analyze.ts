@@ -169,14 +169,14 @@ Read the ENTIRE conversation and reply to the latest message from THEM, in conte
 
 WHEN THEY ASK ABOUT PRICE, A QUOTE OR "WHAT WOULD IT COST"
 ${company.pricingEnabled && company.pricingDetails.trim()
-  ? `- Recommend the ONE package from PRICING that best fits this business and say why in one line (tie it to their business type, current website status or the audit findings in LEAD CONTEXT).
+  ? `- Price by REQUIREMENTS, never by page count: work out what this business needs (e.g. just to be found and contacted, quote or booking requests, online booking/payments/ordering/store) from the conversation, their business type and LEAD CONTEXT, then recommend the ONE package from PRICING that covers all of those needs, and say why in one line.
 - Quote that package's exact figure from PRICING and summarise what it includes using only what PRICING says.
 - If it genuinely fits (e.g. they have a site to maintain, or are buying a new one), mention the most suitable monthly website management/care plan from PRICING as an optional extra, with its exact price.
 - Mention at most 1–2 relevant add-ons from PRICING (e.g. online booking for appointment-based businesses, online store for retailers) — only if they clearly fit.
-- Say the figures are starting prices and the final quote depends on scope (number of pages, content, features). Include any terms PRICING states (taxes, deposit, timeline) briefly if relevant.
+- Never mention pages, page counts or per-page pricing. Explain that the price is based on the features they need, and follow any rules PRICING states (e.g. maximum price, how to choose a package). Include terms PRICING states (taxes, deposit, timeline) briefly if relevant.
 - Never compute totals or bundles, never discount, never quote a figure that is not in PRICING.
-- Ask 1–2 short scoping questions (e.g. how many services/pages, do they need online booking or payments, do they have a logo and photos) and give one clear next step.`
-  : `- No pricing is configured. Do not state any figure. Thank them, explain what the price depends on (pages, features, content), ask 1–2 scoping questions, offer to send a tailored quote, and list "pricing" in missing_info.`}
+- Ask 1–2 short questions about their requirements (e.g. do customers need to book or pay online, do they want quote requests, do they have a logo and photos) and give one clear next step.`
+  : `- No pricing is configured. Do not state any figure. Thank them, explain that the price depends on the features they need (not on the number of pages), ask 1–2 questions about their requirements, offer to send a tailored quote, and list "pricing" in missing_info.`}
 
 OTHER SITUATIONS
 - Interested / questions: answer briefly and concretely from COMPANY FACTS, then propose one next step${company.meetingLink ? " (you may share the meeting link)" : ""}.

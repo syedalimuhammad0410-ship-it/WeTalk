@@ -29,8 +29,8 @@ Gemini output goes through the same schema validation, fact guard and safety rul
 
 The AI quotes prices only from **Settings → Company profile → Pricing** (with pricing switched on):
 
-- **Outreach emails** may mention one "starting from" price for the best-fitting package, and only if it clearly fits.
-- **Reply drafts** for pricing questions recommend one package and say why, using the lead's business type, website status and audit findings. They quote the exact figures, list what the package includes, and may offer the monthly website-management plan and one or two relevant add-ons. They ask scoping questions and give a next step.
+- **Outreach emails** may mention the price of the one package that covers what the business needs, and only if it clearly fits.
+- **Reply drafts** for pricing questions work out what the business needs (to be found and contacted, quote or booking requests, online booking, payments, ordering or a store) and recommend the one package that covers it, saying why. They use the lead's business type, website status and audit findings. Pricing is by requirements: the AI never mentions pages or per-page prices. They quote the exact figures, list what the package includes, and may offer the monthly website-management plan and one or two relevant add-ons. They ask scoping questions and give a next step.
 - The AI never adds up totals, applies discounts or uses a figure that isn't in the price list. The commitment scanner compares amounts by value ($2500 = $2,500 = 2,500 CAD) and blocks any other figure.
 
 With pricing switched off, the AI explains what affects the price, asks scoping questions and offers a tailored quote.
