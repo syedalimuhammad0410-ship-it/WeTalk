@@ -142,13 +142,14 @@ export async function ingestInbound(account: EmailAccount, msg: InboundEmail, op
 /** Polls a provider (Gmail) for new inbound messages. */
 export async function syncAccount(account: EmailAccount) {
   const started = new Date();
-  const msgs = await providerFor(account).fetchInbound();
+  const provider = providerFor(account);
+  const msgs = await provider.fetchInbound();
   let ingested = 0;
   let filtered = 0;
   for (const m of msgs.sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())) {
     const r = await ingestInbound(account, m);
     if (r && !r.duplicate) r.filtered ? filtered++ : ingested++;
   }
-  await db.emailAccount.update({ where: { id: account.id }, data: { lastSyncAt: started, status: "CONNECTED", lastError: null } });
+  await db.emailAccount.update({ where: { id: account.id }, data: { lastSyncAt: ("moreAfter" in provider && provider.moreAfter) || started, status: "CONNECTED", lastError: null } });
   return { fetched: msgs.length, ingested, filtered, message: `${ingested} new email${ingested === 1 ? "" : "s"}${filtered ? `, ${filtered} filtered as not related` : ""}` };
 }

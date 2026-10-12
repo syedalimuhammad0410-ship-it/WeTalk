@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Building2, Gauge, Sparkles, Send, MessageSquareReply, ThumbsUp, CalendarCheck, Trophy, Compass, Inbox, CalendarClock, ShieldAlert } from "lucide-react";
+import { ArrowRight, Building2, Gauge, Sparkles, Send, MessageSquareReply, ThumbsUp, CalendarCheck, Trophy, Compass, Inbox, CalendarClock, ShieldAlert, Phone } from "lucide-react";
 import { db } from "@/lib/db";
 import { pageContext } from "@/lib/server/page";
 import { dashboardStats } from "@/lib/server/queries";
@@ -72,11 +72,12 @@ export default async function DashboardPage() {
           <div className="space-y-6 lg:col-span-2">
             <Card>
               <CardHeader title="Needs your attention" />
-              <div className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <div className="grid divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
                 {[
                   { icon: Inbox, label: "AI drafts awaiting approval", n: stats.pendingDrafts, href: "/inbox?section=draft" },
                   { icon: ShieldAlert, label: "Human review required", n: stats.reviewQueue, href: "/inbox?section=review" },
                   { icon: CalendarClock, label: "Follow-ups due", n: stats.dueFollowUps, href: "/follow-ups" },
+                  { icon: Phone, label: "Great leads to call (no email)", n: stats.toCall, href: "/leads?minOpportunity=70&hasEmail=no&hasPhone=yes&status=NEW,RESEARCHED,HIGH_OPPORTUNITY&sort=opportunity" },
                 ].map((x) => (
                   <Link key={x.label} href={x.href} className="group flex items-center gap-3 px-5 py-4 transition-colors hover:bg-subtle/60">
                     <x.icon className="h-5 w-5 text-faint group-hover:text-accent" />

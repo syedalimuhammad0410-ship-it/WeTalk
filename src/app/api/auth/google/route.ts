@@ -13,7 +13,10 @@ export async function GET(req: NextRequest) {
       const ctx = await getAuthContext();
       if (!ctx || !can(ctx.role, "integrations.manage")) return NextResponse.redirect(new URL("/settings/email?error=Only+admins+can+connect+email", env.appUrl()));
     }
-    return NextResponse.redirect(await googleAuthUrl(purpose));
+    const res = NextResponse.redirect(await googleAuthUrl(purpose));
+    const next = req.nextUrl.searchParams.get("next");
+    if (purpose === "signin" && next && next.startsWith("/") && !next.startsWith("//")) res.cookies.set("ws_oauth_next", next, { httpOnly: true, sameSite: "lax", secure: env.isProduction(), path: "/", maxAge: 600 });
+    return res;
   } catch (e) {
     const back = purpose === "gmail" ? "/settings/email" : "/login";
     return NextResponse.redirect(new URL(`${back}?error=${encodeURIComponent(describeError(e))}`, env.appUrl()));

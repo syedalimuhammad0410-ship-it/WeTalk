@@ -31,6 +31,7 @@ export const LeadFilters = z.object({
   assignedToId: z.string().optional(),
   tagIds: csv.optional(),
   hasEmail: z.enum(["yes", "no"]).optional(),
+  hasPhone: z.enum(["yes", "no"]).optional(),
   archived: z.enum(["yes", "no", "all"]).optional(),
   demo: z.enum(["yes", "no", "all"]).optional(),
   sort: z.enum(["newest", "oldest", "opportunity", "website_score", "name", "last_contacted", "lead_score"]).optional(),
@@ -77,6 +78,8 @@ export function leadWhere(workspaceId: string, f: Partial<LeadFiltersT>): Prisma
   if (f.tagIds?.length) and.push({ tags: { some: { tagId: { in: f.tagIds } } } });
   if (f.hasEmail === "yes") and.push({ email: { not: null } });
   if (f.hasEmail === "no") and.push({ email: null });
+  if (f.hasPhone === "yes") and.push({ phone: { not: null } });
+  if (f.hasPhone === "no") and.push({ phone: null });
   return { AND: and };
 }
 
@@ -129,7 +132,7 @@ export async function pipelineColumns(workspaceId: string, f: Partial<LeadFilter
 
 export async function dashboardStats(workspaceId: string) {
   const base = { workspaceId, archived: false };
-  const [businesses, analyzed, high, sent, responses, interested, meetings, customers, pendingDrafts, reviewQueue, dueFollowUps] = await Promise.all([
+  const [businesses, analyzed, high, sent, responses, interested, meetings, customers, pendingDrafts, reviewQueue, dueFollowUps, toCall] = await Promise.all([
     db.business.count({ where: base }),
     db.business.count({ where: { ...base, audits: { some: { status: "COMPLETED" } } } }),
     db.business.count({ where: { ...base, opportunityScore: { gte: 70 } } }),
@@ -142,8 +145,10 @@ export async function dashboardStats(workspaceId: string) {
     db.aiResponseDraft.count({ where: { workspaceId, status: "PENDING" } }),
     db.conversation.count({ where: { workspaceId, needsHumanReview: true, filtered: false } }),
     db.followUp.count({ where: { workspaceId, status: "PENDING_APPROVAL" } }),
+    // Good leads that can only be reached by phone (no email found), not yet worked.
+    db.business.count({ where: { ...base, doNotContact: false, opportunityScore: { gte: 70 }, email: null, phone: { not: null }, status: { in: ["NEW", "RESEARCHED", "HIGH_OPPORTUNITY"] } } }),
   ]);
-  return { businesses, analyzed, high, sent, responses, interested, meetings, customers, pendingDrafts, reviewQueue, dueFollowUps };
+  return { businesses, analyzed, high, sent, responses, interested, meetings, customers, pendingDrafts, reviewQueue, dueFollowUps, toCall };
 }
 
 const dayKey = (d: Date) => d.toISOString().slice(0, 10);

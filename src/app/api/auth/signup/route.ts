@@ -6,7 +6,7 @@ import { createSession, hashPassword, setSessionCookie, validatePasswordStrength
 import { AppError } from "@/lib/server/errors";
 import { env } from "@/lib/server/env";
 import { rateLimit } from "@/lib/server/ratelimit";
-import { acceptInvitation } from "@/lib/server/members";
+import { acceptInvitation, checkInvitation } from "@/lib/server/members";
 
 const Body = z.object({
   name: z.string().trim().min(1, "Enter your name").max(100),
@@ -21,6 +21,8 @@ export const POST = publicApi(async (req) => {
   const weak = validatePasswordStrength(body.password);
   if (weak) throw new AppError("VALIDATION", weak);
   if (await db.user.findUnique({ where: { email: body.email } })) throw new AppError("CONFLICT", "An account with this email already exists. Sign in instead.");
+  // Check the invitation first so a bad link never leaves a half-created account behind.
+  if (body.invite) await checkInvitation(body.invite, body.email);
   const user = await db.user.create({
     data: { email: body.email, name: body.name, passwordHash: await hashPassword(body.password), isSystemAdmin: env.systemAdminEmails().includes(body.email) || (await db.user.count()) === 0 },
   });

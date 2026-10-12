@@ -128,17 +128,28 @@ class GmailProvider implements EmailProviderClient {
     return { providerMessageId: data.id, rfcMessageId: messageId, providerThreadId: data.threadId };
   }
 
+  /** Set when more new mail exists than one sync fetches; the next sync continues from here. */
+  moreAfter: Date | null = null;
+
   async fetchInbound(): Promise<InboundEmail[]> {
     const since = this.account.lastSyncAt ?? new Date(Date.now() - 3 * 86400_000);
     const after = Math.floor((since.getTime() - 3600_000) / 1000);
-    const list = await this.api<{ messages?: { id: string; threadId: string }[] }>(`messages?q=${encodeURIComponent(`in:inbox after:${after} -from:me -category:promotions -category:social -category:forums`)}&maxResults=50`);
-    const out: InboundEmail[] = [];
-    for (const m of list.messages ?? []) {
-      const exists = await db.emailMessage.findFirst({ where: { workspaceId: this.account.workspaceId, providerMessageId: m.id }, select: { id: true } });
-      if (exists) continue;
-      const full = await this.api<GmailMessage>(`messages/${m.id}?format=full`);
-      out.push(parseGmail(full));
+    const q = encodeURIComponent(`in:inbox after:${after} -from:me -category:promotions -category:social -category:forums`);
+    // Page through every match (newest first), then fetch the new ones oldest-first.
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+    for (let page = 0; page < 20; page++) {
+      const list = await this.api<{ messages?: { id: string }[]; nextPageToken?: string }>(`messages?q=${q}&maxResults=100${pageToken ? `&pageToken=${pageToken}` : ""}`);
+      ids.push(...(list.messages ?? []).map((m) => m.id));
+      if (!list.nextPageToken) break;
+      pageToken = list.nextPageToken;
     }
+    const known = new Set((await db.emailMessage.findMany({ where: { workspaceId: this.account.workspaceId, providerMessageId: { in: ids } }, select: { providerMessageId: true } })).map((m) => m.providerMessageId));
+    const fresh = ids.filter((id) => !known.has(id)).reverse();
+    const MAX_PER_SYNC = 200;
+    const out: InboundEmail[] = [];
+    for (const id of fresh.slice(0, MAX_PER_SYNC)) out.push(parseGmail(await this.api<GmailMessage>(`messages/${id}?format=full`)));
+    this.moreAfter = fresh.length > MAX_PER_SYNC && out.length ? new Date(Math.max(...out.map((m) => m.receivedAt.getTime()))) : null;
     return out;
   }
 }

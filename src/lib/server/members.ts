@@ -18,10 +18,16 @@ export async function inviteMember(workspaceId: string, inviter: { id: string; r
   return { link: `${env.appUrl()}/invite/${token}`, expiresInDays: 7 };
 }
 
-export async function acceptInvitation(token: string, userId: string, userEmail: string) {
+/** Throws when an invitation can't be accepted by this email (checked before an account is created). */
+export async function checkInvitation(token: string, userEmail: string) {
   const inv = await db.invitation.findUnique({ where: { tokenHash: sha256(token) } });
   if (!inv || inv.acceptedAt || inv.expiresAt < new Date()) throw new AppError("NOT_FOUND", "This invitation is invalid or has expired. Ask for a new link.");
-  if (inv.email !== userEmail.toLowerCase()) throw new AppError("FORBIDDEN", `This invitation was sent to ${inv.email}. Sign in with that email to accept it.`);
+  if (inv.email !== userEmail.toLowerCase()) throw new AppError("FORBIDDEN", `This invitation was sent to ${inv.email}. Sign up with that email to accept it.`);
+  return inv;
+}
+
+export async function acceptInvitation(token: string, userId: string, userEmail: string) {
+  const inv = await checkInvitation(token, userEmail);
   await db.$transaction([
     db.workspaceMember.upsert({ where: { workspaceId_userId: { workspaceId: inv.workspaceId, userId } }, create: { workspaceId: inv.workspaceId, userId, role: inv.role }, update: {} }),
     db.invitation.update({ where: { id: inv.id }, data: { acceptedAt: new Date() } }),

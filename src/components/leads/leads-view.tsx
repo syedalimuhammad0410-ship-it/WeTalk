@@ -25,7 +25,7 @@ export type Options = {
 };
 export type Perms = { edit: boolean; status: boolean; del: boolean; exp: boolean; send: boolean; reverseDnc: boolean };
 
-const FILTER_KEYS = ["q", "status", "city", "category", "businessType", "websiteStatus", "websiteClass", "minWebsiteScore", "maxWebsiteScore", "minOpportunity", "maxOpportunity", "response", "campaignId", "discoveredFrom", "discoveredTo", "contactedFrom", "contactedTo", "assignedToId", "tagIds", "hasEmail", "archived", "sort"];
+const FILTER_KEYS = ["q", "status", "city", "category", "businessType", "websiteStatus", "websiteClass", "minWebsiteScore", "maxWebsiteScore", "minOpportunity", "maxOpportunity", "response", "campaignId", "discoveredFrom", "discoveredTo", "contactedFrom", "contactedTo", "assignedToId", "tagIds", "hasEmail", "hasPhone", "archived", "sort"];
 
 export function LeadsView({ view, data, columns, options, perms, openAdd }: { view: "table" | "pipeline"; data: { total: number; page: number; pageSize: number; rows: LeadRow[] } | null; columns: Column[] | null; options: Options; perms: Perms;  openAdd: boolean; filters?: Record<string, unknown> }) {
   const router = useRouter();
@@ -164,6 +164,7 @@ function FilterPanel({ options, onApply, onClose }: { options: Options; onApply:
         <FilterField label="Discovered between"><div className="flex gap-2"><Input type="date" value={f.discoveredFrom} onChange={set("discoveredFrom")} aria-label="Discovered from" /><Input type="date" value={f.discoveredTo} onChange={set("discoveredTo")} aria-label="Discovered to" /></div></FilterField>
         <FilterField label="Contacted between"><div className="flex gap-2"><Input type="date" value={f.contactedFrom} onChange={set("contactedFrom")} aria-label="Contacted from" /><Input type="date" value={f.contactedTo} onChange={set("contactedTo")} aria-label="Contacted to" /></div></FilterField>
         <FilterField label="Has email"><Select value={f.hasEmail} onChange={set("hasEmail")}><option value="">Any</option><option value="yes">Yes</option><option value="no">No</option></Select></FilterField>
+        <FilterField label="Has phone"><Select value={f.hasPhone} onChange={set("hasPhone")}><option value="">Any</option><option value="yes">Yes</option><option value="no">No</option></Select></FilterField>
         <FilterField label="Archived"><Select value={f.archived} onChange={set("archived")}><option value="">Active only</option><option value="yes">Archived only</option><option value="all">All</option></Select></FilterField>
       </div>
       <ChipGroup label="Lead status" values={LEAD_STATUSES.map((s) => ({ id: s, label: LEAD_STATUS_META[s].label }))} selected={sel("status")} onToggle={(v) => toggle("status", v)} />

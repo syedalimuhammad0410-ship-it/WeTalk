@@ -51,7 +51,12 @@ export async function GET(req: NextRequest) {
     const s = await createSession(user.id, { ip: clientIp(req), userAgent: req.headers.get("user-agent") });
     await setSessionCookie(s.token, s.expiresAt);
     const m = await resolveWorkspace(user);
-    return NextResponse.redirect(new URL(m ? "/dashboard" : "/onboarding", env.appUrl()));
+    // Return to the invite (or page) that started the sign-in, if any.
+    const next = req.cookies.get("ws_oauth_next")?.value;
+    const target = next && next.startsWith("/") && !next.startsWith("//") ? next : m ? "/dashboard" : "/onboarding";
+    const res = NextResponse.redirect(new URL(target, env.appUrl()));
+    res.cookies.delete("ws_oauth_next");
+    return res;
   } catch (e) {
     const back = purpose === "gmail" ? "/settings/email" : "/login";
     return NextResponse.redirect(new URL(`${back}?error=${encodeURIComponent(describeError(e))}`, env.appUrl()));
