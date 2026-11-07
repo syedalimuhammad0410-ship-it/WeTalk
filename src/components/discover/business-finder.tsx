@@ -17,7 +17,7 @@ const POPULAR = ["Plumbers", "Electricians", "HVAC contractors", "Roofers", "Lan
 const list = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
 
 /** Business Finder: radius up to 500 km or a whole city/region/province/country, many categories, thousands of results. */
-export function BusinessFinder({ googleConfigured, canRun, campaigns, runs, defaultCampaignId }: { googleConfigured: boolean; canRun: boolean; campaigns: { id: string; name: string }[]; runs: any[]; defaultCampaignId: string }) {
+export function BusinessFinder({ googleConfigured, googleError, canRun, campaigns, runs, defaultCampaignId }: { googleConfigured: boolean; googleError: string | null; canRun: boolean; campaigns: { id: string; name: string }[]; runs: any[]; defaultCampaignId: string }) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export function BusinessFinder({ googleConfigured, canRun, campaigns, runs, defa
   const [f, setF] = useState({
     locations: "", radius: "50", queries: "", target: "500", maxRequests: "300", coverage: "auto", website: "any", minRating: "0",
     hasPhone: false, smallOnly: true, includeExisting: false, repeatSearches: false, autoAudit: true, findEmails: true, campaignId: defaultCampaignId,
-    google: googleConfigured, osm: !googleConfigured,
+    google: googleConfigured && !googleError, osm: true,
   });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<any>) => setF((s) => ({ ...s, [k]: e.target.value }));
   const tick = (k: keyof typeof f) => (v: boolean) => setF((s) => ({ ...s, [k]: v }));
@@ -78,6 +78,7 @@ export function BusinessFinder({ googleConfigured, canRun, campaigns, runs, defa
 
   return (
     <div className="space-y-5">
+      {googleConfigured && googleError && <Alert tone="warning" title="Google Places is refusing your API key">{googleError} Searches automatically use free OpenStreetMap data instead. To add Google results: in Google Cloud Console check that billing is active, “Places API (New)” is enabled, and the key&apos;s API restrictions allow it — then save the key again in <Link href="/settings/integrations" className="font-medium underline">Settings</Link>.</Alert>}
       {!googleConfigured && <Alert tone="info" title="Google Places isn't connected">You can still search free OpenStreetMap data. For the most complete results, add a Google Places key in <Link href="/settings/integrations" className="font-medium underline">Settings → Business Discovery & AI keys</Link>.</Alert>}
       <Card>
         <CardHeader title={<span className="flex items-center gap-2"><Compass className="h-4 w-4 text-accent" /> Business Finder</span>} description="Search a radius of up to 500 km — or an entire city, region, province or country. Big areas are split into overlapping zones automatically, so you get far more than one search's 60 results." action={<ButtonLink size="sm" variant="outline" href="/autoprospect">Full AutoProspect →</ButtonLink>} />
@@ -146,7 +147,7 @@ export function BusinessFinder({ googleConfigured, canRun, campaigns, runs, defa
                     <span className="font-medium">{r.queries.join(", ")}</span><span className="text-muted">{radius ? `within ${radius} km of` : "in"} {r.locations.join("; ")}</span><Badge tone={TONE[r.status]}>{r.status.toLowerCase()}</Badge>
                     <span className="ml-auto flex gap-1.5">
                       {["QUEUED", "RUNNING"].includes(r.status) && <Button size="sm" variant="outline" loading={busy === `${r.id}:pause`} onClick={() => control(r.id, "pause")}><Pause className="h-3.5 w-3.5" /> Pause</Button>}
-                      {r.status === "PAUSED" && <Button size="sm" loading={busy === `${r.id}:resume`} onClick={() => control(r.id, "resume")}><Play className="h-3.5 w-3.5" /> Resume</Button>}
+                      {["PAUSED", "FAILED"].includes(r.status) && <Button size="sm" loading={busy === `${r.id}:resume`} onClick={() => control(r.id, "resume")}><Play className="h-3.5 w-3.5" /> {r.status === "FAILED" ? "Try again" : "Resume"}</Button>}
                       {r.zones.failed > 0 && <Button size="sm" variant="outline" onClick={() => control(r.id, "retry_failed")}><RotateCcw className="h-3.5 w-3.5" /> Retry failed zones</Button>}
                       {["COMPLETED", "PAUSED", "CANCELLED"].includes(r.status) && <Button size="sm" variant="outline" loading={busy === `${r.id}:continue`} onClick={() => control(r.id, "continue", { addTarget: r.target, addRequests: r.maxRequests })}><Plus className="h-3.5 w-3.5" /> Continue — find more</Button>}
                     </span>

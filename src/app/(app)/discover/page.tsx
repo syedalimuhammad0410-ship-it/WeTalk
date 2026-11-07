@@ -11,8 +11,9 @@ export default async function DiscoverPage({ searchParams }: { searchParams: Pro
   const ctx = await pageContext();
   const sp = await searchParams;
   const ws = ctx.workspace.id;
-  const [key, campaigns, runs] = await Promise.all([
+  const [key, cred, campaigns, runs] = await Promise.all([
     resolveIntegrationKey(ws, "GOOGLE_PLACES").catch(() => null),
+    db.integrationCredential.findUnique({ where: { workspaceId_provider: { workspaceId: ws, provider: "GOOGLE_PLACES" } }, select: { status: true, lastError: true } }),
     db.campaign.findMany({ where: { workspaceId: ws, status: { not: "COMPLETED" } }, select: { id: true, name: true } }),
     db.discoveryRun.findMany({ where: { workspaceId: ws, automationRunId: null }, orderBy: { createdAt: "desc" }, take: 10 }),
   ]);
@@ -20,7 +21,7 @@ export default async function DiscoverPage({ searchParams }: { searchParams: Pro
   return (
     <div>
       <PageHeader title="Find Businesses" description="Search a radius of up to 500 km or a whole city, region, province or country. Only official APIs and open data are used; emails are never guessed." />
-      <BusinessFinder googleConfigured={Boolean(key)} canRun={ctx.can("discovery.run")} campaigns={campaigns} runs={JSON.parse(JSON.stringify(runsWithZones))} defaultCampaignId={sp.campaignId ?? ""} />
+      <BusinessFinder googleConfigured={Boolean(key)} googleError={cred?.status === "ERROR" ? (cred.lastError ?? "Google refused the request.") : null} canRun={ctx.can("discovery.run")} campaigns={campaigns} runs={JSON.parse(JSON.stringify(runsWithZones))} defaultCampaignId={sp.campaignId ?? ""} />
     </div>
   );
 }

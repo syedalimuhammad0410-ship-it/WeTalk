@@ -6,7 +6,7 @@ import { AppError, describeError } from "../errors";
 import { logActivity, notify } from "../activity";
 import { classifyBusinessType } from "../intel/classify-type";
 import { normalizeWebsite, upsertBusiness } from "../leads";
-import { getSettings, resolveIntegrationKey } from "../workspace";
+import { getSettings, markIntegration, resolveIntegrationKey } from "../workspace";
 import { brandKey, smallBusinessCheck } from "./small-business";
 import { canSplit, cellKey, circleBounds, distanceKm, initialCellKm, parseLocations, resolveAreaWithGoogle, resolveAreaWithOsm, splitBounds, tileBounds, type Area, type Bounds } from "./geo";
 import { PROVIDER_IDS, PROVIDERS, providerSettings, recordUsage, usageToday, type FoundBusiness, type ProviderId } from "./providers";
@@ -75,25 +75,74 @@ function cellSizeFor(coverage: RunOptionsT["coverage"], b: Bounds, geoExpansion:
   return { auto: initialCellKm(b), regional: 50, provincial: 100, national: 200 }[coverage];
 }
 
-async function resolveArea(workspaceId: string, location: string, preferGoogle: boolean): Promise<Area> {
+const FATAL_GOOGLE = ["INVALID_CREDENTIALS", "QUOTA_EXCEEDED", "NOT_CONFIGURED"];
+
+/** Looks up an area; if Google refuses (bad key, quota), OpenStreetMap's free geocoder is used instead. */
+async function resolveArea(workspaceId: string, location: string, preferGoogle: boolean): Promise<{ area: Area; googleError: string | null }> {
   const key = preferGoogle ? await resolveIntegrationKey(workspaceId, "GOOGLE_PLACES").catch(() => null) : null;
-  if (key) return resolveAreaWithGoogle(key.key, location);
-  return resolveAreaWithOsm(location);
+  if (key) {
+    try {
+      return { area: await resolveAreaWithGoogle(key.key, location), googleError: null };
+    } catch (e) {
+      const err = e as AppError;
+      if (err.code === "NOT_FOUND") throw e;
+      return { area: await resolveAreaWithOsm(location), googleError: FATAL_GOOGLE.includes(err.code) ? describeError(e) : null };
+    }
+  }
+  return { area: await resolveAreaWithOsm(location), googleError: null };
+}
+
+const intersects = (a: Bounds, b: Bounds) => a.south <= b.north && b.south <= a.north && a.west <= b.east && b.west <= a.east;
+
+/** Overlapping search areas (e.g. Toronto + Brampton, 100 km each) are searched once, as one combined area. */
+function mergeOverlapping(items: { label: string; bounds: Bounds }[]) {
+  const out = items.map((i) => ({ ...i }));
+  for (let merged = true; merged; ) {
+    merged = false;
+    for (let i = 0; i < out.length && !merged; i++) {
+      for (let j = i + 1; j < out.length && !merged; j++) {
+        if (!intersects(out[i]!.bounds, out[j]!.bounds)) continue;
+        const a = out[i]!.bounds;
+        const b = out[j]!.bounds;
+        out[i] = { label: `${out[i]!.label} + ${out[j]!.label}`, bounds: { south: Math.min(a.south, b.south), west: Math.min(a.west, b.west), north: Math.max(a.north, b.north), east: Math.max(a.east, b.east) } };
+        out.splice(j, 1);
+        merged = true;
+      }
+    }
+  }
+  return out;
+}
+
+/** Google refused the key: record it, skip Google zones, and continue with OpenStreetMap. */
+async function switchToOpenStreetMap(run: DiscoveryRun, reason: string) {
+  await db.discoveryZone.updateMany({ where: { runId: run.id, provider: "google_places", status: { in: ["PENDING", "RUNNING"] } }, data: { status: "SKIPPED", error: `Google Places refused the request: ${reason}`.slice(0, 500) } });
+  await markIntegration(run.workspaceId, "GOOGLE_PLACES", false, reason);
+  const message = `Google Places refused your API key (${reason.replace(/^.*?:\s*/, "").slice(0, 120)}) — continuing with free OpenStreetMap data. Fix the key in Google Cloud to add Google results.`;
+  if (!run.providers.includes("openstreetmap")) {
+    const updated = await db.discoveryRun.update({ where: { id: run.id }, data: { providers: [...run.providers, "openstreetmap"], message } });
+    await planZones(updated, { providers: ["openstreetmap"] });
+  } else await db.discoveryRun.update({ where: { id: run.id }, data: { message } });
+  await notify({ workspaceId: run.workspaceId, type: "API_FAILURE", title: "Google Places refused your API key", body: `${reason} Searches continue with OpenStreetMap. Check billing, that “Places API (New)” is enabled, and the key's restrictions in Google Cloud.`, link: "/settings/integrations" });
 }
 
 /** Splits every location into zones for every provider × query. Idempotent. */
-export async function planZones(run: DiscoveryRun, only?: { locations?: string[]; queries?: string[] }) {
+export async function planZones(run: DiscoveryRun, only?: { locations?: string[]; queries?: string[]; providers?: ProviderId[] }) {
   const { automation } = await getSettings(run.workspaceId);
   const opts = RunOptions.parse(run.options ?? {});
   const locations = only?.locations ?? run.locations;
   const queries = only?.queries ?? run.queries;
+  let providers = (only?.providers ?? run.providers) as ProviderId[];
   const notes: string[] = [];
   const circles = [...opts.circles];
   let planned = 0;
+  let googleError: string | null = null;
+  const areas: { label: string; bounds: Bounds }[] = [];
   for (const location of locations) {
     let area: Area;
     try {
-      area = await resolveArea(run.workspaceId, location, run.providers.includes("google_places"));
+      const r = await resolveArea(run.workspaceId, location, providers.includes("google_places") && !googleError);
+      area = r.area;
+      googleError = googleError ?? r.googleError;
     } catch (e) {
       notes.push(`${location}: ${describeError(e)}`);
       continue;
@@ -104,9 +153,20 @@ export async function planZones(run: DiscoveryRun, only?: { locations?: string[]
       bounds = circleBounds(area.center, opts.radiusKm);
       if (!circles.some((c) => c.lat === area.center.lat && c.lng === area.center.lng)) circles.push({ ...area.center, r: opts.radiusKm });
     }
+    areas.push({ label: location, bounds });
+  }
+  if (googleError && providers.includes("google_places")) {
+    // Don't plan zones Google will refuse: use OpenStreetMap for this search.
+    providers = Array.from(new Set([...providers.filter((p) => p !== "google_places"), "openstreetmap" as const]));
+    await markIntegration(run.workspaceId, "GOOGLE_PLACES", false, googleError);
+    await db.discoveryRun.update({ where: { id: run.id }, data: { providers: Array.from(new Set([...run.providers, "openstreetmap"])), message: `Google Places refused your API key — using free OpenStreetMap data instead. Fix the key in Google Cloud (billing, “Places API (New)” enabled, key restrictions) to add Google results.` } });
+    await notify({ workspaceId: run.workspaceId, type: "API_FAILURE", title: "Google Places refused your API key", body: `${googleError} Searches use OpenStreetMap until it is fixed.`, link: "/settings/integrations" });
+  }
+  for (const { label: location, bounds } of mergeOverlapping(areas)) {
     const tiles = tileBounds(bounds, cellSizeFor(opts.coverage, bounds, automation.geoExpansionEnabled));
-    for (const provider of run.providers as ProviderId[]) {
-      for (const query of queries) {
+    for (const provider of providers) {
+      // OpenStreetMap answers every business type in one request per zone.
+      for (const query of provider === "openstreetmap" ? [queries.join(" | ")] : queries) {
         const rows = tiles.map((b, i) => ({
           workspaceId: run.workspaceId, runId: run.id, provider, query, depth: 0, ...b,
           label: tiles.length > 1 ? `${location} — zone ${i + 1} of ${tiles.length}` : location,
@@ -290,6 +350,9 @@ export async function processDiscoveryRun(runId: string, deadline: number, onPro
       } else if (err.code === "VALIDATION" && canSplit(bounds, zone.depth)) {
         await db.discoveryZone.update({ where: { id: zone.id }, data: { status: "SPLIT", error: describeError(e).slice(0, 300) } });
         await createChildren(zone, bounds);
+      } else if (zone.provider === "google_places" && FATAL_GOOGLE.includes(err.code)) {
+        // Keep searching with OpenStreetMap instead of stopping.
+        await switchToOpenStreetMap(run, describeError(e));
       } else if (err.code === "INVALID_CREDENTIALS" || err.code === "QUOTA_EXCEEDED" || err.code === "NOT_CONFIGURED") {
         await db.discoveryZone.update({ where: { id: zone.id }, data: { status: "PENDING" } });
         const msg = `Paused: ${describeError(e)} Fix it, then press Resume — finished zones are kept.`;
@@ -297,8 +360,10 @@ export async function processDiscoveryRun(runId: string, deadline: number, onPro
         await notify({ workspaceId: run.workspaceId, type: "API_FAILURE", title: "Large-area discovery paused", body: describeError(e), link: "/discover" });
         return { state: "PAUSED", message: msg, createdIds };
       } else {
+        // Busy/unreachable servers get more patience than real errors.
+        const transient = ["RATE_LIMITED", "UPSTREAM_TIMEOUT", "NETWORK", "UPSTREAM_ERROR", "MALFORMED_RESPONSE"].includes(err.code);
         const attempts = zone.attempts + 1;
-        await db.discoveryZone.update({ where: { id: zone.id }, data: { attempts, status: attempts >= 3 ? "FAILED" : "PENDING", error: describeError(e).slice(0, 500) } });
+        await db.discoveryZone.update({ where: { id: zone.id }, data: { attempts, status: attempts >= (transient ? 6 : 3) ? "FAILED" : "PENDING", error: describeError(e).slice(0, 500) } });
       }
       await db.discoveryRun.update({ where: { id: runId }, data: { requests: { increment: 1 }, message: `Zone ${zone.label}: ${describeError(e).slice(0, 200)}` } });
       if (err.code === "RATE_LIMITED") await new Promise((r) => setTimeout(r, 5000));

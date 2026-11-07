@@ -76,8 +76,8 @@ const KEYWORD_TAGS: [RegExp, string[]][] = [
   [/roof/i, ['["craft"="roofer"]']],
   [/hvac|heating|air condition/i, ['["craft"="hvac"]']],
   [/landscap|lawn|garden/i, ['["craft"="gardener"]', '["shop"="garden_centre"]']],
-  [/hair|salon|barber/i, ['["shop"="hairdresser"]', '["shop"="beauty"]']],
-  [/beauty|spa|nail/i, ['["shop"="beauty"]']],
+  [/hair|barber/i, ['["shop"="hairdresser"]']],
+  [/beauty|spa|nail|esthetic|aesthetic/i, ['["shop"="beauty"]']],
   [/auto|mechanic|car repair|garage/i, ['["shop"="car_repair"]']],
   [/construct|contractor|builder|renovat/i, ['["craft"="builder"]', '["office"="construction_company"]', '["craft"="carpenter"]']],
   [/lawyer|law firm|legal/i, ['["office"="lawyer"]']],
@@ -108,14 +108,19 @@ function stem(query: string) {
   return w.replace(/(ing|ers|ies|es|s)$/i, "").slice(0, 30) || w;
 }
 
+/** One Overpass query for one or more business types ("plumbers | electricians | …"): one request per zone, however many types. */
 export function overpassQuery(query: string, b: Bounds) {
   const bbox = `${b.south},${b.west},${b.north},${b.east}`;
-  const tags = KEYWORD_TAGS.filter(([re]) => re.test(query)).flatMap(([, t]) => t);
-  const s = stem(query).replace(/[\\"^$.|?*+()[\]{}]/g, "");
-  const nameFilters = ["shop", "craft", "office", "amenity", "healthcare"].map((k) => `nwr["name"~"${s}",i]["${k}"](${bbox});`);
+  const parts = query.split(" | ").map((p) => p.trim()).filter(Boolean);
+  const tags = Array.from(new Set(parts.flatMap((p) => KEYWORD_TAGS.filter(([re]) => re.test(p)).flatMap(([, t]) => t))));
+  const stems = Array.from(new Set(parts.map((p) => stem(p).replace(/[\\"^$.|?*+()[\]{}]/g, "")).filter((s) => s.length >= 3)));
+  const nameFilters = stems.length ? ["shop", "craft", "office", "amenity", "healthcare"].map((k) => `nwr["name"~"${stems.join("|")}",i]["${k}"](${bbox});`) : [];
   const tagFilters = tags.map((t) => `nwr${t}["name"](${bbox});`);
-  return `[out:json][timeout:60];(${[...tagFilters, ...nameFilters].join("")});out center tags ${OSM_LIMIT};`;
+  return `[out:json][timeout:90];(${[...tagFilters, ...nameFilters].join("")});out center tags ${OSM_LIMIT};`;
 }
+
+/** Public Overpass servers, tried in order (busy or unreachable servers are skipped). */
+const OVERPASS_URLS = () => (process.env.OVERPASS_URL ?? "https://overpass-api.de/api/interpreter,https://maps.mail.ru/osm/tools/overpass/api/interpreter,https://overpass.kumi.systems/api/interpreter").split(",").map((s) => s.trim()).filter(Boolean);
 
 type OsmElement = { type: string; id: number; lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string> };
 
@@ -168,18 +173,36 @@ const osm: DiscoveryProvider = {
     return { ok: true };
   },
   async search(_workspaceId, query, b) {
-    const res = await fetchWithTimeout(process.env.OVERPASS_URL ?? "https://overpass-api.de/api/interpreter", {
-      service: "OpenStreetMap Overpass API",
-      timeoutMs: 90000,
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "WebScoutAI/1.0 (business discovery for a web agency)", Accept: "application/json" },
-      body: `data=${encodeURIComponent(overpassQuery(query, b))}`,
-    });
-    if (res.status === 429) throw new AppError("RATE_LIMITED", "OpenStreetMap's Overpass API is busy (rate limited). The zone will be retried.");
-    if (!res.ok) throw new AppError("UPSTREAM_ERROR", `OpenStreetMap Overpass API error (HTTP ${res.status}).`);
-    const data = (await res.json().catch(() => null)) as { elements?: OsmElement[] } | null;
-    if (!data) throw new AppError("MALFORMED_RESPONSE", "OpenStreetMap returned an unreadable response.");
-    return { items: (data.elements ?? []).map(osmToBusiness).filter((x): x is FoundBusiness => Boolean(x)), nextPageToken: null };
+    const body = `data=${encodeURIComponent(overpassQuery(query, b))}`;
+    let last: unknown = null;
+    for (const url of OVERPASS_URLS()) {
+      try {
+        const res = await fetchWithTimeout(url, {
+          service: "OpenStreetMap Overpass API",
+          timeoutMs: 100000,
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "WebScoutAI/1.0 (business discovery for a web agency)", Accept: "application/json" },
+          body,
+        });
+        if (res.status === 429 || res.status >= 500) {
+          last = new AppError("RATE_LIMITED", `OpenStreetMap server busy (HTTP ${res.status}).`);
+          continue;
+        }
+        if (!res.ok) throw new AppError("UPSTREAM_ERROR", `OpenStreetMap Overpass API error (HTTP ${res.status}).`);
+        const data = (await res.json().catch(() => null)) as { elements?: OsmElement[]; remark?: string } | null;
+        if (!data) {
+          last = new AppError("MALFORMED_RESPONSE", "OpenStreetMap returned an unreadable response.");
+          continue;
+        }
+        if (data.remark && /timed out|out of memory/i.test(data.remark)) throw new AppError("VALIDATION", `OpenStreetMap could not finish this zone (${data.remark.slice(0, 120)}); it will be split into smaller zones.`);
+        return { items: (data.elements ?? []).map(osmToBusiness).filter((x): x is FoundBusiness => Boolean(x)), nextPageToken: null };
+      } catch (e) {
+        const code = (e as AppError).code;
+        if (code === "UPSTREAM_ERROR" || code === "VALIDATION") throw e;
+        last = e; // network error / timeout: try the next server
+      }
+    }
+    throw last instanceof AppError ? new AppError("RATE_LIMITED", `All OpenStreetMap servers are busy right now (${last.message}). The zone will be retried.`) : new AppError("RATE_LIMITED", "All OpenStreetMap servers are busy right now. The zone will be retried.");
   },
 };
 
