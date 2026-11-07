@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthContext, getSessionUser } from "@/lib/server/auth";
 import { getSubscription } from "@/lib/server/billing";
+import { paypalConfig } from "@/lib/server/paypal";
 import { can } from "@/lib/permissions";
 import { PLAN_IDS } from "@/lib/plans";
 import { Checkout } from "@/components/billing/checkout";
@@ -15,6 +16,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
   const ctx = await getAuthContext();
   const sub = ctx ? await getSubscription(ctx.workspace.id) : null;
   const plan = (PLAN_IDS as readonly string[]).includes((sp.plan ?? "").toUpperCase()) ? (sp.plan!.toUpperCase() as (typeof PLAN_IDS)[number]) : null;
+  const pp = paypalConfig(); // only the public client id reaches the browser
   return (
     <Checkout
       userName={user.name}
@@ -25,6 +27,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
       onboardingDone={Boolean(ctx?.workspace.onboardingCompleted)}
       initialPlan={plan ?? (sub ? null : "FREE")}
       initialCycle={sp.cycle?.toUpperCase() === "YEARLY" ? "YEARLY" : "MONTHLY"}
+      paypal={pp.enabled ? { clientId: pp.clientId, currency: pp.currency, live: pp.mode === "live" } : null}
     />
   );
 }

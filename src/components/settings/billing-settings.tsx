@@ -55,15 +55,16 @@ export function BillingSettings({ d }: { d: any }) {
         </div>
       </Card>
       <Card>
-        <CardHeader title="Payments" description="Payments are in demo mode while billing is being set up — nothing has been charged." />
+        <CardHeader title="Payments" description={b.paypalEnabled ? "Paid securely through PayPal — receipts are emailed by PayPal. Switching to Free cancels the PayPal subscription so you aren't billed again." : "Payments are in demo mode while billing is being set up — nothing has been charged."} />
+        {sub.provider === "PAYPAL" && sub.providerSubscriptionId && <p className="px-5 pb-1 text-xs text-muted">PayPal subscription {sub.providerSubscriptionId} · {String(sub.providerStatus ?? "").toLowerCase().replace("_", " ")}</p>}
         {b.payments.length === 0 ? <p className="px-5 py-4 text-sm text-muted">No payments yet.</p> : (
           <ul className="divide-y divide-border text-sm">
             {b.payments.map((p: any) => (
               <li key={p.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
                 <span className="font-medium">{getPlan(p.plan).name} ({p.cycle.toLowerCase()})</span>
-                <span className="tabular-nums">{money(p.amountCents)}</span>
-                <Badge tone="amber">demo — not charged</Badge>
-                <span className="text-xs text-muted">{p.method === "DEMO_PAYPAL" ? "PayPal" : "Card"} · {p.reference}</span>
+                <span className="tabular-nums">{money(p.amountCents)}{p.currency && p.currency !== "USD" ? ` ${p.currency}` : ""}</span>
+                {p.method === "PAYPAL" ? <Badge tone="green">paid</Badge> : <Badge tone="amber">demo — not charged</Badge>}
+                <span className="text-xs text-muted">{p.method === "DEMO_CARD" ? "Card" : "PayPal"} · {p.reference}</span>
                 <span className="ml-auto text-xs text-faint"><DateTimeText d={p.createdAt} /></span>
               </li>
             ))}

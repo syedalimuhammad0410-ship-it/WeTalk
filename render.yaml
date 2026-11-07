@@ -26,3 +26,13 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # PayPal Subscriptions: all payments go to the PayPal account that owns these keys.
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      # sandbox (testing) or live
+      - key: PAYPAL_MODE
+        sync: false

@@ -283,21 +283,25 @@ model Workspace {
 
 /// The workspace's plan. Lead allowance is per calendar month (UTC).
 model Subscription {
-  id                 String    @id @default(cuid())
-  workspaceId        String    @unique
-  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                     String    @id @default(cuid())
+  workspaceId            String    @unique
+  workspace              Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   /// FREE | STARTER | GROWTH | UNLIMITED
-  plan               String    @default("FREE")
+  plan                   String    @default("FREE")
   /// MONTHLY | YEARLY
-  cycle              String    @default("MONTHLY")
+  cycle                  String    @default("MONTHLY")
   /// ACTIVE | CANCELLED
-  status             String    @default("ACTIVE")
-  priceCents         Int       @default(0)
-  currentPeriodStart DateTime  @default(now())
-  currentPeriodEnd   DateTime
-  note               String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  status                 String    @default("ACTIVE")
+  priceCents             Int       @default(0)
+  currentPeriodStart     DateTime  @default(now())
+  currentPeriodEnd       DateTime
+  note                   String?
+  /// PAYPAL when a real PayPal subscription backs the plan
+  provider               String?
+  providerSubscriptionId String?   @unique
+  providerStatus         String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 }
 
 /// Payment records. While payments run in demo mode, method is DEMO_CARD / DEMO_PAYPAL and nothing is charged.

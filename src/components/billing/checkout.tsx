@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, CheckCircle2, CreditCard, Lock, Sparkles } from "lucide-react";
@@ -7,16 +7,21 @@ import { Button } from "../ui/button";
 import { Field, Input } from "../ui/form";
 import { Alert } from "../ui/misc";
 import { useToast } from "../ui/toast";
+import { PayPalButtons, type PayPalHandlers } from "./paypal-buttons";
 import { apiFetch } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { PLANS, PLAN_FEATURES, YEARLY_BENEFITS, getPlan, leadsLabel, money, priceCents, yearlyDeal, type Cycle, type PlanId } from "@/lib/plans";
 
-type Props = { userName: string; hasWorkspace: boolean; workspaceName: string | null; canManage: boolean; currentPlan: string | null; onboardingDone: boolean; initialPlan: PlanId | null; initialCycle: Cycle };
+type Props = {
+  userName: string; hasWorkspace: boolean; workspaceName: string | null; canManage: boolean; currentPlan: string | null; onboardingDone: boolean; initialPlan: PlanId | null; initialCycle: Cycle;
+  /** Set when PayPal keys are configured: real payments. Otherwise checkout runs in demo mode. */
+  paypal: { clientId: string; currency: string; live: boolean } | null;
+};
 
 const STEPS = ["Choose a plan", "Payment", "Connect your tools", "Find clients"];
 
-/** Plan selection + demo payment. Card details stay in the browser: only the plan and method are sent. */
-export function Checkout({ userName, hasWorkspace, workspaceName, canManage, currentPlan, onboardingDone, initialPlan, initialCycle }: Props) {
+/** Plan selection + payment: real PayPal subscriptions when configured, otherwise a demo (card details stay in the browser). */
+export function Checkout({ userName, hasWorkspace, workspaceName, canManage, currentPlan, onboardingDone, initialPlan, initialCycle, paypal }: Props) {
   const router = useRouter();
   const toast = useToast();
   const [planId, setPlanId] = useState<PlanId>(initialPlan ?? (currentPlan as PlanId) ?? "FREE");
@@ -25,20 +30,24 @@ export function Checkout({ userName, hasWorkspace, workspaceName, canManage, cur
   const [method, setMethod] = useState<"DEMO_CARD" | "DEMO_PAYPAL">("DEMO_CARD");
   const [card, setCard] = useState({ holder: userName, number: "4242 4242 4242 4242", expiry: "12/30", cvc: "123" });
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ next: string; reference: string | null } | null>(null);
+  const [done, setDone] = useState<{ next: string; reference: string | null; real: boolean } | null>(null);
+  const pending = useRef<{ plan: PlanId; cycle: Cycle } | null>(null);
   const plan = getPlan(planId);
   const amount = priceCents(plan, cycle);
   const deal = yearlyDeal(plan);
   const isCurrent = currentPlan === planId;
+  const usePayPal = Boolean(paypal) && amount > 0;
+  const currency = paypal && paypal.currency !== "USD" ? ` ${paypal.currency}` : "";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (usePayPal) return; // paid through the PayPal buttons
     if (!hasWorkspace && name.trim().length < 2) return toast.error("Enter your agency or business name");
     setBusy(true);
     try {
       if (amount > 0) await new Promise((r) => setTimeout(r, 1200)); // simulated payment processing
       const r = await apiFetch<{ next: string; paymentReference: string | null }>("/api/billing/checkout", { body: { plan: planId, cycle, method: amount > 0 ? method : null, workspaceName: hasWorkspace ? undefined : name.trim() } });
-      setDone({ next: r.next, reference: r.paymentReference });
+      setDone({ next: r.next, reference: r.paymentReference, real: false });
       router.refresh();
     } catch (err) {
       toast.error("Could not complete", (err as Error).message);
@@ -47,14 +56,48 @@ export function Checkout({ userName, hasWorkspace, workspaceName, canManage, cur
     }
   }
 
+  const paypalHandlers: PayPalHandlers = {
+    onClick: () => {
+      if (!hasWorkspace && name.trim().length < 2) {
+        toast.error("Enter your agency or business name first");
+        return false;
+      }
+      return true;
+    },
+    createSubscription: async () => {
+      const r = await apiFetch<{ paypalPlanId: string; customId: string }>("/api/billing/paypal/start", { body: { plan: planId, cycle, workspaceName: hasWorkspace ? undefined : name.trim() } });
+      pending.current = { plan: planId, cycle };
+      return { plan_id: r.paypalPlanId, custom_id: r.customId };
+    },
+    onApprove: async (subscriptionId) => {
+      const p = pending.current ?? { plan: planId, cycle };
+      setBusy(true);
+      try {
+        const r = await apiFetch<{ next: string; paymentReference: string }>("/api/billing/paypal/activate", { body: { subscriptionId, plan: p.plan, cycle: p.cycle } });
+        setPlanId(p.plan);
+        setCycle(p.cycle);
+        setDone({ next: r.next, reference: r.paymentReference, real: true });
+        router.refresh();
+      } catch (err) {
+        toast.error("PayPal approved the payment, but your plan didn't switch on", `${(err as Error).message} Refresh this page and try again — your PayPal subscription is ${subscriptionId}.`);
+      } finally {
+        setBusy(false);
+      }
+    },
+    onCancel: () => toast.info("Payment cancelled — you weren't charged."),
+    onError: (message) => toast.error("Payment not completed", message),
+  };
+
   if (done) {
     return (
       <Shell step={2}>
         <div className="mx-auto max-w-lg rounded-2xl border border-border bg-surface p-8 text-center shadow-sm">
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" />
           <h1 className="mt-4 text-2xl font-semibold">{amount > 0 ? "Payment successful" : "You're on the Free plan"}</h1>
-          <p className="mt-2 text-sm text-muted">{plan.name} · {leadsLabel(plan)}{amount > 0 ? ` · ${money(amount)} ${cycle === "YEARLY" ? "per year" : "per month"}` : ""}</p>
-          {done.reference && <p className="mt-1 text-xs text-faint">Demo payment reference {done.reference} — nothing was charged.</p>}
+          <p className="mt-2 text-sm text-muted">{plan.name} · {leadsLabel(plan)}{amount > 0 ? ` · ${money(amount)}${currency} ${cycle === "YEARLY" ? "per year" : "per month"}` : ""}</p>
+          {done.reference && (done.real
+            ? <p className="mt-1 text-xs text-faint">Paid with PayPal · subscription {done.reference}. PayPal emails you a receipt; cancel any time in Settings → Plan &amp; billing.</p>
+            : <p className="mt-1 text-xs text-faint">Demo payment reference {done.reference} — nothing was charged.</p>)}
           <p className="mt-5 text-sm">{done.next === "/onboarding" ? "Next, connect your tools: your free Gemini AI key, Gmail for sending emails, and (optionally) Google Places for the most complete business search." : "Your new plan is active."}</p>
           <Button className="mt-6 h-11 w-full text-base" onClick={() => router.push(done.next)}>{done.next === "/onboarding" ? "Connect my tools →" : "Back to WebScout →"}</Button>
         </div>
@@ -103,7 +146,17 @@ export function Checkout({ userName, hasWorkspace, workspaceName, canManage, cur
                 <Field label="Your agency or business name" htmlFor="co-name" required hint="This becomes your workspace — you can change it later."><Input id="co-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Naqvi Helpers" /></Field>
               </div>
             )}
-            {amount > 0 ? (
+            {usePayPal ? (
+              <div className="rounded-2xl border border-border bg-surface p-5">
+                <div className="mb-2 flex items-center gap-2 font-semibold"><Lock className="h-4 w-4 text-muted" /> Secure payment with PayPal</div>
+                <p className="text-sm text-muted">Pay with your PayPal account or a debit/credit card using the buttons in the order summary. Card details go straight to PayPal — WebScout never sees them.</p>
+                <ul className="mt-3 space-y-1 text-sm text-muted">
+                  <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />{money(amount)}{currency} today, then every {cycle === "YEARLY" ? "year" : "month"} until you cancel</li>
+                  <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />Cancel any time in Settings → Plan &amp; billing (or in your PayPal account)</li>
+                </ul>
+                {!paypal!.live && <Alert tone="warning" className="mt-4" title="PayPal test mode (sandbox)">Log in with a PayPal sandbox buyer account. No real money moves until PAYPAL_MODE is set to live.</Alert>}
+              </div>
+            ) : amount > 0 ? (
               <div className="rounded-2xl border border-border bg-surface p-5">
                 <div className="mb-3 flex items-center gap-2 font-semibold"><Lock className="h-4 w-4 text-muted" /> Payment</div>
                 <Alert tone="warning" title="Demo mode — no real payment is taken">Payments are simulated while billing is being set up. Don&apos;t enter a real card number; the details below never leave your browser.</Alert>
@@ -145,11 +198,19 @@ export function Checkout({ userName, hasWorkspace, workspaceName, canManage, cur
               </ul>
             )}
             <div className="my-4 border-t border-border" />
-            <div className="flex justify-between text-base font-semibold"><span>Due today</span><span>{amount === 0 ? "$0" : money(amount)}</span></div>
+            <div className="flex justify-between text-base font-semibold"><span>Due today</span><span>{amount === 0 ? "$0" : `${money(amount)}${currency}`}</span></div>
             <div className="mt-1 text-xs text-muted">{amount === 0 ? "Free forever. No card required." : cycle === "YEARLY" ? "Renews yearly. Cancel any time." : "Renews monthly. Cancel any time."}</div>
-            <Button type="submit" className="mt-5 h-11 w-full text-base" loading={busy} loadingText={amount > 0 ? "Processing payment…" : "Starting…"} disabled={!canManage || (isCurrent && hasWorkspace)}>
-              {isCurrent && hasWorkspace ? "This is your current plan" : amount === 0 ? "Start free" : `Pay ${money(amount)} (demo)`}
-            </Button>
+            {usePayPal && canManage && !(isCurrent && hasWorkspace) ? (
+              <div className="mt-5">
+                {busy && <div className="flex h-11 items-center justify-center rounded-md bg-subtle text-sm text-muted">Activating your plan…</div>}
+                {/* kept mounted while activating: PayPal is still finishing its approval callback */}
+                <div className={busy ? "hidden" : undefined}><PayPalButtons clientId={paypal!.clientId} currency={paypal!.currency} handlers={paypalHandlers} /></div>
+              </div>
+            ) : (
+              <Button type="submit" className="mt-5 h-11 w-full text-base" loading={busy} loadingText={amount > 0 ? "Processing payment…" : "Starting…"} disabled={!canManage || (isCurrent && hasWorkspace)}>
+                {isCurrent && hasWorkspace ? "This is your current plan" : amount === 0 ? "Start free" : `Pay ${money(amount)} (demo)`}
+              </Button>
+            )}
             {hasWorkspace && <Link href={onboardingDone ? "/dashboard" : "/onboarding"} className="mt-3 block text-center text-xs text-muted hover:text-fg">Keep my current plan</Link>}
           </div>
         </form>

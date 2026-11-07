@@ -2,6 +2,7 @@ import "../guard";
 import type { Job, Prisma } from "@prisma/client";
 import { db } from "../../db";
 import { describeError } from "../errors";
+import { syncDuePayPalSubscriptions } from "../billing";
 import { claimNextJob, makeContext, recoverStaleJobs } from "./queue";
 
 let running = false;
@@ -89,6 +90,7 @@ async function maintenance(force = false) {
   lastTick = Date.now();
   await recoverStaleJobs();
   await resumeOrphanedRuns();
+  await syncDuePayPalSubscriptions().catch((e) => console.error("[billing] PayPal sync failed:", e));
   const workspaces = await db.workspace.findMany({ select: { id: true, emailAccounts: { select: { provider: true } }, automation: { select: { automationPaused: true, inboxMonitoringEnabled: true, followUpSchedulingEnabled: true } } } });
   for (const w of workspaces) {
     // Automation Control Center: global pause and per-feature switches.
