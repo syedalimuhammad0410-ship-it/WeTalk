@@ -28,9 +28,11 @@ test.describe.serial("WebScout full workflow", () => {
     await page.getByLabel("Work email").fill(email);
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Create account" }).click();
-    await expect(page).toHaveURL(/onboarding/);
-    await page.getByLabel("Workspace name").fill(`E2E Studio ${stamp}`);
-    await continueStep(page);
+    // New accounts pick a plan first (Free needs no payment), then set up their tools.
+    await expect(page).toHaveURL(/checkout/);
+    await page.getByLabel(/Your agency or business name/).fill(`E2E Studio ${stamp}`);
+    await page.getByRole("button", { name: "Start free" }).click();
+    await page.getByRole("button", { name: /Connect my tools/ }).click();
     await expect(page.getByRole("heading", { name: "What do you sell?" })).toBeVisible();
     await page.getByLabel("Describe your business").fill("We build fast websites for local service businesses.");
     await page.getByLabel(/Services you offer/).fill("Website design\nWebsite development");

@@ -14,6 +14,8 @@ export async function makeWorkspace(opts: { sandbox?: boolean; company?: Record<
   const owner = await makeUser("Owner");
   const ws = await createWorkspace(owner.id, `WS ${Date.now()}-${++n}`);
   await db.workspace.update({ where: { id: ws.id }, data: { onboardingCompleted: true } });
+  // Tests exercise features, not plan limits (plan limits have their own test).
+  await db.subscription.update({ where: { workspaceId: ws.id }, data: { plan: "UNLIMITED" } });
   await db.complianceSettings.update({ where: { workspaceId: ws.id }, data: { minMinutesBetweenSends: 0, minDaysBetweenContacts: 0 } });
   if (opts.sandbox !== false) await db.emailAccount.create({ data: { workspaceId: ws.id, provider: "SANDBOX", emailAddress: "agency@studio.test", displayName: "Alex", isDefault: true } });
   await db.companyProfile.update({ where: { workspaceId: ws.id }, data: { companyName: "Studio", senderName: "Alex", services: ["Website design"], ...(opts.company ?? {}) } });

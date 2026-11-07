@@ -147,7 +147,7 @@ export function Onboarding({ initial }: { initial: Initial }) {
               </Step>
             )}
             {step === 4 && (
-              <Step title="Connect business discovery" desc="Businesses are found through the official Google Places API (New). You need a Google Maps Platform API key with “Places API (New)” enabled. Optional: enable “PageSpeed Insights API” on the same key for Lighthouse scores.">
+              <Step title="Connect business discovery" desc="Optional. With a Google Maps Platform key (“Places API (New)” enabled) searches use Google’s complete business data. Without one, WebScout searches free OpenStreetMap data instead — you can add a key any time in Settings.">
                 {integrations && <IntegrationKeyForm provider="google-places" status={integrations.googlePlaces} disabled={!isAdmin} onChange={refreshIntegrations} />}
                 <p className="text-xs text-muted">You can also add businesses manually or import a CSV without Google.</p>
               </Step>

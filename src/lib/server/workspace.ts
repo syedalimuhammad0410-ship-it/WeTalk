@@ -74,6 +74,8 @@ export async function createWorkspace(userId: string, name: string, opts: { isDe
         automation: { create: {} },
         compliance: { create: {} },
         templates: { create: DEFAULT_TEMPLATES },
+        // Every workspace has a plan: Free until the owner picks another (demo workspaces are unlimited).
+        subscription: { create: { plan: opts.isDemo ? "UNLIMITED" : "FREE", note: opts.isDemo ? "Demo workspace" : null, currentPeriodEnd: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1)) } },
       },
     });
     await tx.user.update({ where: { id: userId }, data: { lastWorkspaceId: ws.id } });

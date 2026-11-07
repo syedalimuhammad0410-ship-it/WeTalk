@@ -17,7 +17,7 @@ const POPULAR = ["Plumbers", "Electricians", "HVAC contractors", "Roofers", "Lan
 const list = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
 
 /** Business Finder: radius up to 500 km or a whole city/region/province/country, many categories, thousands of results. */
-export function BusinessFinder({ googleConfigured, googleError, canRun, campaigns, runs, defaultCampaignId }: { googleConfigured: boolean; googleError: string | null; canRun: boolean; campaigns: { id: string; name: string }[]; runs: any[]; defaultCampaignId: string }) {
+export function BusinessFinder({ googleConfigured, googleError, canRun, campaigns, runs, defaultCampaignId, allowance }: { googleConfigured: boolean; googleError: string | null; canRun: boolean; campaigns: { id: string; name: string }[]; runs: any[]; defaultCampaignId: string; allowance: { planName: string; limit: number | null; used: number } }) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
@@ -78,6 +78,13 @@ export function BusinessFinder({ googleConfigured, googleError, canRun, campaign
 
   return (
     <div className="space-y-5">
+      {allowance.limit != null && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-sm">
+          <span><strong>{allowance.planName} plan:</strong> {allowance.used.toLocaleString("en-US")} of {allowance.limit.toLocaleString("en-US")} new leads used this month</span>
+          <div className="h-1.5 min-w-[120px] flex-1 overflow-hidden rounded-full bg-subtle"><div className={`h-full rounded-full ${allowance.used >= allowance.limit ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, Math.round((allowance.used / Math.max(1, allowance.limit)) * 100))}%` }} /></div>
+          <Link href="/pricing" className="font-medium text-accent hover:underline">{allowance.used >= allowance.limit ? "Upgrade to find more →" : "Upgrade"}</Link>
+        </div>
+      )}
       {googleConfigured && googleError && <Alert tone="warning" title="Google Places is refusing your API key">{googleError} Searches automatically use free OpenStreetMap data instead. To add Google results: in Google Cloud Console check that billing is active, “Places API (New)” is enabled, and the key&apos;s API restrictions allow it — then save the key again in <Link href="/settings/integrations" className="font-medium underline">Settings</Link>.</Alert>}
       {!googleConfigured && <Alert tone="info" title="Google Places isn't connected">You can still search free OpenStreetMap data. For the most complete results, add a Google Places key in <Link href="/settings/integrations" className="font-medium underline">Settings → Business Discovery & AI keys</Link>.</Alert>}
       <Card>

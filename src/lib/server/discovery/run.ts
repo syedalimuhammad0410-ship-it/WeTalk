@@ -7,6 +7,7 @@ import { logActivity, notify } from "../activity";
 import { classifyBusinessType } from "../intel/classify-type";
 import { normalizeWebsite, upsertBusiness } from "../leads";
 import { getSettings, markIntegration, resolveIntegrationKey } from "../workspace";
+import { leadAllowance, limitReachedMessage } from "../billing";
 import { brandKey, smallBusinessCheck } from "./small-business";
 import { canSplit, cellKey, circleBounds, distanceKm, initialCellKm, parseLocations, resolveAreaWithGoogle, resolveAreaWithOsm, splitBounds, tileBounds, type Area, type Bounds, type LatLng } from "./geo";
 import { PROVIDER_IDS, PROVIDERS, providerSettings, recordUsage, usageToday, type FoundBusiness, type ProviderId } from "./providers";
@@ -308,6 +309,14 @@ export async function processDiscoveryRun(runId: string, deadline: number, onPro
       return { state: "PAUSED", message: msg, createdIds };
     }
 
+    // Plan allowance: new leads per month.
+    const allowance = await leadAllowance(run.workspaceId);
+    if (allowance.remaining <= 0) {
+      const msg = limitReachedMessage(allowance);
+      await finish(runId, "PAUSED", msg);
+      return { state: "PAUSED", message: msg, createdIds };
+    }
+
     zone = await db.discoveryZone.update({ where: { id: zone.id }, data: { status: "RUNNING" } });
     const bounds: Bounds = { south: zone.south, west: zone.west, north: zone.north, east: zone.east };
     try {
@@ -320,10 +329,14 @@ export async function processDiscoveryRun(runId: string, deadline: number, onPro
       }
       const inc = { found: 0, created: 0, duplicates: 0, filtered: 0 };
       let zoneCreated = 0;
+      let remaining = allowance.remaining;
+      let limitHit = false;
       for (const item of page.items) {
         if (passesFilters(item, opts, brands)) { inc.filtered++; continue; }
+        if (remaining <= 0) { limitHit = true; break; }
         const res = await upsertBusiness(run.workspaceId, item, run.createdById);
         if (res.created) {
+          remaining--;
           inc.created++;
           zoneCreated++;
           createdIds.push(res.business.id);
@@ -335,6 +348,14 @@ export async function processDiscoveryRun(runId: string, deadline: number, onPro
           inc.duplicates++;
           if (opts.includeExisting && (await attach(run, res.business.id))) inc.found++;
         }
+      }
+      if (limitHit) {
+        // Keep this zone where it was (same page) so an upgrade + Resume finishes it.
+        await db.discoveryZone.update({ where: { id: zone.id }, data: { status: "PENDING", created: { increment: zoneCreated } } });
+        await db.discoveryRun.update({ where: { id: runId }, data: { requests: { increment: 1 }, found: { increment: inc.found }, created: { increment: inc.created }, duplicates: { increment: inc.duplicates }, filtered: { increment: inc.filtered } } });
+        const msg = limitReachedMessage(allowance);
+        await finish(runId, "PAUSED", msg);
+        return { state: "PAUSED", message: msg, createdIds };
       }
       const pages = zone.pages + 1;
       const results = zone.results + page.items.length;

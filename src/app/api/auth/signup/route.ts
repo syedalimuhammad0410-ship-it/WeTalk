@@ -29,5 +29,5 @@ export const POST = publicApi(async (req) => {
   if (body.invite) await acceptInvitation(body.invite, user.id, user.email);
   const s = await createSession(user.id, { ip: clientIp(req), userAgent: req.headers.get("user-agent") });
   await setSessionCookie(s.token, s.expiresAt);
-  return NextResponse.json({ ok: true, next: body.invite ? "/dashboard" : "/onboarding" });
+  return NextResponse.json({ ok: true, next: body.invite ? "/dashboard" : "/checkout" });
 });

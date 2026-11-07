@@ -7,6 +7,7 @@ import { classifyBusinessType } from "../intel/classify-type";
 import { upsertBusiness } from "../leads";
 import { markIntegration, resolveIntegrationKey } from "../workspace";
 import { brandKey, smallBusinessCheck } from "./small-business";
+import { leadAllowance, limitReachedMessage } from "../billing";
 import { geocodeWithPlaces, placeToBusiness, searchPlaces } from "./places";
 import type { JobContext } from "../jobs/queue";
 
@@ -42,6 +43,10 @@ export async function runDiscovery(workspaceId: string, input: DiscoveryInputT, 
   const brands = new Map<string, Set<string>>();
   const createdIds: string[] = [];
   let center: { latitude: number; longitude: number } | null = null;
+  const allowance = await leadAllowance(workspaceId);
+  let remaining = allowance.remaining;
+  let limitReached = false;
+  if (remaining <= 0) throw new AppError("QUOTA_EXCEEDED", limitReachedMessage(allowance).replace(/^Paused: /, ""));
   try {
     if (input.radiusKm > 0) center = (await geocodeWithPlaces(key.key, input.location)).center;
     await ctx.progress({ total: input.limit, processed: 0, message: "Finding businesses…" });
@@ -72,9 +77,11 @@ export async function runDiscovery(workspaceId: string, input: DiscoveryInputT, 
             brands.set(brand, places);
             if (!smallBusinessCheck(b).ok || (brand.length > 2 && places.size > 1)) { stats.notSmall++; continue; }
           }
+          if (remaining <= 0) { limitReached = true; break outer; }
           const res = await upsertBusiness(workspaceId, b, userId);
           stats.found++;
           if (res.created) {
+            remaining--;
             stats.created++;
             createdIds.push(res.business.id);
             const t = classifyBusinessType({ googleTypes: b.types, category: b.category, name: b.name });
@@ -98,6 +105,6 @@ export async function runDiscovery(workspaceId: string, input: DiscoveryInputT, 
     const { enqueueJob } = await import("../jobs/queue");
     await enqueueJob({ workspaceId, type: "WEBSITE_AUDIT", label: `Analyse ${createdIds.length} new businesses`, payload: { businessIds: createdIds }, createdById: userId });
   }
-  const note = stats.found < input.limit ? (stats.queries === 1 ? " Google returns at most 60 results per query — add comma-separated search terms or narrower locations to find more." : "") : "";
+  const note = limitReached ? ` ${limitReachedMessage(allowance).replace(/^Paused: /, "")}` : stats.found < input.limit ? (stats.queries === 1 ? " Google returns at most 60 results per query — add comma-separated search terms or narrower locations to find more." : "") : "";
   return { ...stats, createdIds, message: `Found ${stats.found} businesses: ${stats.created} new, ${stats.duplicates} already in your workspace${stats.filtered ? `, ${stats.filtered} excluded by filters` : ""}${stats.notSmall ? `, ${stats.notSmall} skipped as chains, landmarks or large businesses` : ""}.${note}` };
 }

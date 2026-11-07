@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { pageContext } from "@/lib/server/page";
 import { resolveIntegrationKey } from "@/lib/server/workspace";
 import { zoneSummary } from "@/lib/server/discovery/run";
+import { leadAllowance } from "@/lib/server/billing";
 import { PageHeader } from "@/components/ui/misc";
 import { BusinessFinder } from "@/components/discover/business-finder";
 
@@ -18,10 +19,12 @@ export default async function DiscoverPage({ searchParams }: { searchParams: Pro
     db.discoveryRun.findMany({ where: { workspaceId: ws, automationRunId: null }, orderBy: { createdAt: "desc" }, take: 10 }),
   ]);
   const runsWithZones = await Promise.all(runs.map(async (r) => ({ ...r, zones: await zoneSummary(r.id) })));
+  const a = await leadAllowance(ws);
+  const allowance = { planName: a.planName, limit: a.limit, used: a.used };
   return (
     <div>
       <PageHeader title="Find Businesses" description="Search a radius of up to 500 km or a whole city, region, province or country. Only official APIs and open data are used; emails are never guessed." />
-      <BusinessFinder googleConfigured={Boolean(key)} googleError={cred?.status === "ERROR" ? (cred.lastError ?? "Google refused the request.") : null} canRun={ctx.can("discovery.run")} campaigns={campaigns} runs={JSON.parse(JSON.stringify(runsWithZones))} defaultCampaignId={sp.campaignId ?? ""} />
+      <BusinessFinder googleConfigured={Boolean(key)} googleError={cred?.status === "ERROR" ? (cred.lastError ?? "Google refused the request.") : null} canRun={ctx.can("discovery.run")} campaigns={campaigns} runs={JSON.parse(JSON.stringify(runsWithZones))} defaultCampaignId={sp.campaignId ?? ""} allowance={allowance} />
     </div>
   );
 }

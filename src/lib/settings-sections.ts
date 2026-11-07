@@ -1,6 +1,7 @@
 export const SETTINGS_SECTIONS = [
   { id: "account", label: "Account" },
   { id: "workspace", label: "Workspace" },
+  { id: "billing", label: "Plan & billing" },
   { id: "users", label: "Users" },
   { id: "company", label: "Company profile" },
   { id: "integrations", label: "Business Discovery & AI keys" },

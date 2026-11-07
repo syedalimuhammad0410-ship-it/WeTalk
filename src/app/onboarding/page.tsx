@@ -11,7 +11,8 @@ export default async function OnboardingPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const ctx = await getAuthContext();
-  if (!ctx) return <Onboarding initial={{ step: 1, hasWorkspace: false, userName: user.name }} />;
+  // New accounts choose a plan (which creates their workspace) before setup.
+  if (!ctx) redirect("/checkout");
   const [integrations, settings] = await Promise.all([integrationSummary(ctx.workspace.id), getSettings(ctx.workspace.id)]);
   const ws = await db.workspace.findUniqueOrThrow({ where: { id: ctx.workspace.id } });
   return (

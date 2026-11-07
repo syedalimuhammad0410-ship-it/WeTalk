@@ -31,7 +31,9 @@ export default async function SettingsPage({ params, searchParams }: { params: P
   const accounts = await db.emailAccount.findMany({ where: { workspaceId: ws }, select: { id: true, provider: true, emailAddress: true, displayName: true, replyTo: true, signature: true, status: true, lastError: true, lastSyncAt: true, isDefault: true, inboundAddress: true } });
   // Section-specific data, loaded only where it is shown.
   const extra =
-    section === "providers"
+    section === "billing"
+      ? { billing: await (await import("@/lib/server/billing")).billingOverview(ws) }
+      : section === "providers"
       ? { providers: await (await import("@/lib/server/discovery/providers")).providerOverview(ws) }
       : section === "automation-center"
         ? {
