@@ -251,6 +251,7 @@ export async function processDiscoveryRun(runId: string, deadline: number, onPro
   }
 
   const settingsByProvider = await providerSettings(run.workspaceId);
+  let googleOk = false;
   for (;;) {
     run = (await db.discoveryRun.findUnique({ where: { id: runId } }))!;
     if (run.status === "PAUSED" || run.status === "CANCELLED") return { state: run.status, message: run.message ?? "", createdIds };
@@ -298,6 +299,11 @@ export async function processDiscoveryRun(runId: string, deadline: number, onPro
     try {
       const page = await provider.search(run.workspaceId, zone.query, bounds, zone.pageToken);
       await recordUsage(run.workspaceId, provider.id, { requests: 1, results: page.items.length });
+      // Google works again (e.g. billing fixed): clear the "refusing your key" warning.
+      if (provider.id === "google_places" && !googleOk) {
+        googleOk = true;
+        await markIntegration(run.workspaceId, "GOOGLE_PLACES", true);
+      }
       const inc = { found: 0, created: 0, duplicates: 0, filtered: 0 };
       let zoneCreated = 0;
       for (const item of page.items) {
