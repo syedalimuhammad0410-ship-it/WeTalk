@@ -14,6 +14,7 @@ const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("archive"), ids: z.array(z.string()).min(1).max(1000), archived: z.boolean() }),
   z.object({ action: z.literal("status"), ids: z.array(z.string()).min(1).max(1000), status: z.enum(LEAD_STATUSES) }),
   z.object({ action: z.literal("audit"), ids: z.array(z.string()).min(1).max(5000) }),
+  z.object({ action: z.literal("contacts"), ids: z.array(z.string()).min(1).max(2000) }),
   z.object({ action: z.literal("prompts"), ids: z.array(z.string()).min(1).max(500) }),
   z.object({ action: z.literal("emails"), ids: z.array(z.string()).min(1).max(2000), templateId: z.string().nullable().optional(), campaignId: z.string().nullable().optional() }),
   z.object({ action: z.literal("send"), ids: z.array(z.string()).min(1).max(500), confirmCount: z.number().int() }),
@@ -56,6 +57,10 @@ export const POST = api({ permission: "leads.edit" }, async (req, ctx) => {
     case "audit": {
       assertCan(ctx, "audits.run");
       const job = await enqueueJob({ workspaceId: ws, type: "WEBSITE_AUDIT", label: `Analyse ${ids.length} websites`, payload: { businessIds: ids }, createdById: ctx.user.id });
+      return { jobId: job.id };
+    }
+    case "contacts": {
+      const job = await enqueueJob({ workspaceId: ws, type: "CONTACT_DISCOVERY", label: `Find public emails for ${ids.length} businesses`, payload: { businessIds: ids }, createdById: ctx.user.id });
       return { jobId: job.id };
     }
     case "prompts": {

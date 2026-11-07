@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Building2, Gauge, Sparkles, Send, MessageSquareReply, ThumbsUp, CalendarCheck, Trophy, Compass, Inbox, CalendarClock, ShieldAlert, Phone } from "lucide-react";
+import { ArrowRight, Building2, Gauge, Sparkles, Send, MessageSquareReply, ThumbsUp, CalendarCheck, Trophy, Compass, Inbox, CalendarClock, ShieldAlert, Phone, Rocket } from "lucide-react";
 import { db } from "@/lib/db";
 import { pageContext } from "@/lib/server/page";
 import { dashboardStats } from "@/lib/server/queries";
@@ -38,7 +38,8 @@ export default async function DashboardPage() {
         </div>
         <div className="flex gap-2">
           <ButtonLink href="/leads" variant="outline">View leads</ButtonLink>
-          <ButtonLink href="/discover"><Compass className="h-4 w-4" /> Find businesses</ButtonLink>
+          <ButtonLink href="/discover" variant="outline"><Compass className="h-4 w-4" /> Find businesses</ButtonLink>
+          <ButtonLink href="/autoprospect" className="bg-emerald-600 text-white hover:bg-emerald-700"><Rocket className="h-4 w-4" /> Start automated prospecting</ButtonLink>
         </div>
       </div>
 

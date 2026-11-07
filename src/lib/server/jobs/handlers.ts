@@ -110,4 +110,22 @@ export const HANDLERS: Record<Job["type"], Handler> = {
   async FOLLOW_UP_DISPATCH(job) {
     return dispatchDueFollowUps(job.workspaceId);
   },
+  async DISCOVERY_RUN(job) {
+    const { runDiscoverySlice } = await import("../discovery/run");
+    return runDiscoverySlice((job.payload as { runId: string }).runId);
+  },
+  async AUTOPROSPECT(job) {
+    const { runAutoProspectSlice } = await import("../automation/autoprospect");
+    return runAutoProspectSlice((job.payload as { runId: string }).runId);
+  },
+  async CONTACT_DISCOVERY(job, ctx) {
+    const { discoverContacts } = await import("../contacts/discover");
+    const ids = ((job.payload as { businessIds?: string[] }).businessIds ?? []).slice(0, 2000);
+    let emails = 0;
+    const r = await forEachLead(ids, ctx, "Finding public business emails", async (id) => {
+      emails += (await discoverContacts(job.workspaceId, id, { userId: job.createdById })).found;
+    });
+    await notify({ workspaceId: job.workspaceId, type: "JOB_COMPLETED", title: "Email search finished", body: `${r.processed - r.failed} businesses checked, ${emails} public business email${emails === 1 ? "" : "s"} found.`, link: "/leads?publicEmail=yes" });
+    return { ...r, emails, message: `${emails} public business emails found` };
+  },
 };

@@ -45,7 +45,7 @@ const OutreachSchema = z.object({ subject: z.string(), body: z.string() });
  * Uses Claude when configured; otherwise renders the chosen template with
  * verified observations. Never sends anything.
  */
-export async function generateOutreachDraft(workspaceId: string, businessId: string, userId: string | null, opts: { templateId?: string | null; campaignId?: string | null } = {}) {
+export async function generateOutreachDraft(workspaceId: string, businessId: string, userId: string | null, opts: { templateId?: string | null; campaignId?: string | null; useAi?: boolean } = {}) {
   const business = await db.business.findFirst({ where: { id: businessId, workspaceId } });
   if (!business) throw new AppError("NOT_FOUND", "Lead not found.");
   if (business.doNotContact) throw new AppError("SUPPRESSED", `${business.name} is marked Do Not Contact. Outreach is blocked.`);
@@ -57,7 +57,7 @@ export async function generateOutreachDraft(workspaceId: string, businessId: str
   let subject = "";
   let body = "";
   let aiGenerated = false;
-  const ai = settings.automation.aiOutreachGeneration ? await getAi(workspaceId) : null;
+  const ai = settings.automation.aiOutreachGeneration && opts.useAi !== false ? await getAi(workspaceId) : null;
   if (ai && observations.length) {
     const c = settings.company;
     try {

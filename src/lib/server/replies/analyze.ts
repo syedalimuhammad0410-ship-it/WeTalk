@@ -270,7 +270,7 @@ HARD RULES — never break them
     },
   });
 
-  if (decision.autoSend && draftId && business && !quiet) {
+  if (decision.autoSend && draftId && business && !quiet && !automation.automationPaused) {
     try {
       const { sendEmail } = await import("../email/send");
       const draft = await db.aiResponseDraft.findUniqueOrThrow({ where: { id: draftId } });

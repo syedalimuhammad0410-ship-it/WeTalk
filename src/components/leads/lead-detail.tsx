@@ -16,11 +16,12 @@ import { StatusBadge, WebsiteBadge } from "./status-badge";
 import { OverviewTab, AuditTab, OpportunityTab, PromptTab } from "./lead-sections";
 import { EmailsTab } from "./lead-outreach";
 import { PitchTab } from "./lead-pitch";
+import { ContactsTab } from "./lead-contacts";
 import { ConversationTab, FollowUpsTab, ActivityTab, NotesTab } from "./lead-misc";
 import { EditLeadDialog, TagEditor } from "./lead-edit";
 import type { LeadData, LeadPerms } from "./types";
 
-const TABS = ["overview", "audit", "opportunity", "prompt", "pitch", "emails", "conversation", "followups", "activity", "notes"] as const;
+const TABS = ["overview", "contacts", "audit", "opportunity", "prompt", "pitch", "emails", "conversation", "followups", "activity", "notes"] as const;
 type Tab = (typeof TABS)[number];
 
 export function LeadDetail({ data, initialTab, perms, currentUserId }: { data: LeadData; initialTab: string; perms: LeadPerms; currentUserId: string }) {
@@ -120,6 +121,7 @@ export function LeadDetail({ data, initialTab, perms, currentUserId }: { data: L
         onChange={changeTab}
         tabs={[
           { id: "overview", label: "Overview" },
+          { id: "contacts", label: "Contacts" },
           { id: "audit", label: "Website & Audit" },
           { id: "opportunity", label: "Opportunity" },
           { id: "prompt", label: "Prompt" },
@@ -136,6 +138,7 @@ export function LeadDetail({ data, initialTab, perms, currentUserId }: { data: L
         {tab === "audit" && <AuditTab data={data} perms={perms} onAudit={runAudit} busy={busy === "audit"} />}
         {tab === "opportunity" && <OpportunityTab data={data} />}
         {tab === "prompt" && <PromptTab data={data} perms={perms} onGenerate={genPrompt} busy={busy === "prompt"} />}
+        {tab === "contacts" && <ContactsTab data={data} perms={perms} />}
         {tab === "pitch" && <PitchTab data={data} perms={perms} />}
         {tab === "emails" && <EmailsTab data={data} perms={perms} />}
         {tab === "conversation" && <ConversationTab data={data} />}

@@ -18,13 +18,21 @@ const Body = z.object({
   promptBehavior: z.string().max(4000),
   requireSendConfirmation: z.boolean(),
   followUpDays: z.array(z.number().int().min(1).max(60)).max(5),
+  // Automation Control Center
+  discoveryEnabled: z.boolean(), geoExpansionEnabled: z.boolean(), contactDiscoveryEnabled: z.boolean(), websiteAnalysisEnabled: z.boolean(),
+  opportunityScoringEnabled: z.boolean(), promptGenerationEnabled: z.boolean(), emailGenerationEnabled: z.boolean(), eligibilityChecksEnabled: z.boolean(),
+  outreachSendingEnabled: z.boolean(), inboxMonitoringEnabled: z.boolean(), followUpSchedulingEnabled: z.boolean(),
+  outreachMode: z.enum(["MANUAL", "APPROVAL", "AUTOMATED_ELIGIBLE"]),
+  autoSendImpliedConsent: z.boolean(),
 }).partial();
 
 export const PATCH = api({}, async (req, ctx) => {
   const body = await parseBody(req, Body);
   assertCan(ctx, "automation.manage");
-  const enablingAuto = body.automaticReplies === true || body.responseMode === "AUTOMATIC" || body.automaticFollowUps === true;
+  const enablingAuto = body.automaticReplies === true || body.responseMode === "AUTOMATIC" || body.automaticFollowUps === true || body.outreachSendingEnabled === true || body.outreachMode === "AUTOMATED_ELIGIBLE" || body.autoSendImpliedConsent === true;
   if (enablingAuto) assertCan(ctx, "autoReplies.enable");
+  // Automated outreach changes the workspace's legal exposure: compliance owners decide.
+  if (body.outreachMode === "AUTOMATED_ELIGIBLE" || body.autoSendImpliedConsent === true || body.eligibilityChecksEnabled !== undefined) assertCan(ctx, "compliance.manage");
   const before = await db.automationSettings.findUnique({ where: { workspaceId: ctx.workspace.id } });
   const after = await db.automationSettings.upsert({ where: { workspaceId: ctx.workspace.id }, create: { workspaceId: ctx.workspace.id, ...body }, update: body });
   const changes = Object.keys(body).filter((k) => JSON.stringify((before as Record<string, unknown> | null)?.[k]) !== JSON.stringify((after as Record<string, unknown>)[k]));

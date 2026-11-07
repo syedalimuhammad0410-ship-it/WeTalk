@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC = ["/login", "/signup", "/invite", "/api", "/_next", "/favicon", "/icon", "/robots.txt"];
+const PUBLIC = ["/login", "/signup", "/invite", "/unsubscribe", "/api", "/_next", "/favicon", "/icon", "/robots.txt"];
 
 /** Cheap edge check: send visitors without a session cookie to sign-in. Real validation happens server-side. */
 export function middleware(req: NextRequest) {

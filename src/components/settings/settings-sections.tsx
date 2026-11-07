@@ -14,6 +14,7 @@ import { AI_MODELS, RESPONSE_TONES } from "@/lib/constants";
 import { ROLE_LABEL } from "@/lib/permissions";
 import { IntegrationKeyForm } from "./integration-key-form";
 import { EmailConnect } from "./email-connect";
+import { AutomationCenter, ProvidersSettings } from "./automation-center";
 import { RelTime, DateTimeText } from "@/components/ui/time";
 
 type D = any;
@@ -64,6 +65,8 @@ export function SettingsSection({ data }: { data: D }) {
         ai: <AiSettings d={data} />,
         email: <EmailSettings d={data} />,
         automation: <Automation d={data} />,
+        "automation-center": <AutomationCenter d={data} />,
+        providers: <ProvidersSettings d={data} />,
         "follow-ups": <FollowUpSettings d={data} />,
         compliance: <Compliance d={data} />,
         notifications: <Notifications d={data} />,

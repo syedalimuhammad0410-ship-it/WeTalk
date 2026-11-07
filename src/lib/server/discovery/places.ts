@@ -45,11 +45,12 @@ type SearchBody = {
   pageSize?: number;
   pageToken?: string;
   locationBias?: { circle: { center: { latitude: number; longitude: number }; radius: number } };
+  locationRestriction?: { rectangle: { low: { latitude: number; longitude: number }; high: { latitude: number; longitude: number } } };
   minRating?: number;
   openNow?: boolean;
 };
 
-async function placesRequest<T>(apiKey: string, body: SearchBody, fieldMask: string): Promise<T> {
+export async function placesRequest<T>(apiKey: string, body: SearchBody, fieldMask: string): Promise<T> {
   const res = await fetchWithTimeout("https://places.googleapis.com/v1/places:searchText", {
     service: "Google Places API",
     timeoutMs: 20000,

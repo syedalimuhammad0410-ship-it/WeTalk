@@ -67,6 +67,7 @@ enum BusinessSource {
   MANUAL
   CSV_IMPORT
   DEMO
+  OPENSTREETMAP
 }
 
 enum JobType {
@@ -78,6 +79,9 @@ enum JobType {
   INBOUND_ANALYSIS
   FOLLOW_UP_DISPATCH
   BULK_ACTION
+  DISCOVERY_RUN
+  AUTOPROSPECT
+  CONTACT_DISCOVERY
 }
 
 enum JobStatus {
@@ -263,6 +267,16 @@ model Workspace {
   aiUsage        AiUsage[]
   statusHistory  LeadStatusChange[]
   contacts       Contact[]
+
+  discoveryRuns     DiscoveryRun[]
+  discoveryZones    DiscoveryZone[]
+  searchHistory     DiscoverySearchHistory[]
+  providerSettings  DiscoveryProviderSetting[]
+  providerUsage     ProviderUsage[]
+  consentRecords    ConsentRecord[]
+  automationRuns    AutomationRun[]
+  automationItems   AutomationItem[]
+  outreachApprovals OutreachApproval[]
 }
 
 model WorkspaceMember {
@@ -340,6 +354,23 @@ model AutomationSettings {
   promptBehavior             String       @default("")
   requireSendConfirmation    Boolean      @default(true)
   followUpDays               Int[]        @default([4, 10])
+  // Automation Control Center
+  automationPaused           Boolean      @default(false)
+  discoveryEnabled           Boolean      @default(true)
+  geoExpansionEnabled        Boolean      @default(true)
+  contactDiscoveryEnabled    Boolean      @default(true)
+  websiteAnalysisEnabled     Boolean      @default(true)
+  opportunityScoringEnabled  Boolean      @default(true)
+  promptGenerationEnabled    Boolean      @default(true)
+  emailGenerationEnabled     Boolean      @default(true)
+  eligibilityChecksEnabled   Boolean      @default(true)
+  outreachSendingEnabled     Boolean      @default(false)
+  inboxMonitoringEnabled     Boolean      @default(true)
+  followUpSchedulingEnabled  Boolean      @default(true)
+  /// MANUAL | APPROVAL | AUTOMATED_ELIGIBLE
+  outreachMode               String       @default("APPROVAL")
+  /// Automated sending may rely on implied consent (conspicuous publication) only when the owner explicitly allows it.
+  autoSendImpliedConsent     Boolean      @default(false)
   updatedAt                  DateTime     @updatedAt
 }
 
@@ -503,21 +534,239 @@ model Business {
 }
 
 model Contact {
-  id          String    @id @default(cuid())
-  workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  businessId  String
-  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  name        String?
-  email       String?
-  phone       String?
-  role        String?
-  source      String
-  isPrimary   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
+  id                String    @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  businessId        String
+  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name              String?
+  email             String?
+  phone             String?
+  role              String?
+  source            String
+  isPrimary         Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  /// VERIFIED_PUBLIC | PUBLIC_DIRECTORY | LICENSED_PROVIDER | MANUAL | UNVERIFIED | INVALID
+  classification    String    @default("MANUAL")
+  sourceUrl         String?
+  sourceSnippet     String?
+  /// VALID | INVALID | UNVERIFIED
+  verification      String    @default("UNVERIFIED")
+  verificationNote  String?
+  mxValid           Boolean?
+  /// ELIGIBLE | NEEDS_REVIEW | INELIGIBLE (CASL outreach eligibility)
+  eligibility       String    @default("NEEDS_REVIEW")
+  eligibilityReason String?
+  consentBasis      String?
+  lastCheckedAt     DateTime?
+
+  consentRecords ConsentRecord[]
 
   @@index([workspaceId, email])
   @@index([businessId])
+  @@index([workspaceId, eligibility])
+}
+
+// ─────────────── Automated prospecting ───────────────
+
+/// A large, resumable discovery search split into geographic zones.
+model DiscoveryRun {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaignId      String?
+  automationRunId String?
+  /// QUEUED | RUNNING | PAUSED | COMPLETED | CANCELLED | FAILED
+  status          String    @default("QUEUED")
+  locations       String[]
+  queries         String[]
+  providers       String[]
+  target          Int       @default(200)
+  maxRequests     Int       @default(500)
+  options         Json      @default("{}")
+  found           Int       @default(0)
+  created         Int       @default(0)
+  duplicates      Int       @default(0)
+  filtered        Int       @default(0)
+  requests        Int       @default(0)
+  message         String?
+  error           String?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  finishedAt      DateTime?
+
+  zones DiscoveryZone[]
+
+  @@index([workspaceId, createdAt])
+}
+
+/// One provider × query × geographic rectangle. Saturated zones are split into four.
+model DiscoveryZone {
+  id          String       @id @default(cuid())
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runId       String
+  run         DiscoveryRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  provider    String
+  query       String
+  label       String
+  south       Float
+  west        Float
+  north       Float
+  east        Float
+  depth       Int          @default(0)
+  /// PENDING | RUNNING | DONE | SPLIT | FAILED | SKIPPED
+  status      String       @default("PENDING")
+  pageToken   String?
+  pages       Int          @default(0)
+  results     Int          @default(0)
+  created     Int          @default(0)
+  attempts    Int          @default(0)
+  error       String?
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([runId, provider, query, south, west, north, east])
+  @@index([runId, status])
+}
+
+/// Completed searches, so identical searches aren't repeated across runs.
+model DiscoverySearchHistory {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider    String
+  query       String
+  cellKey     String
+  results     Int
+  saturated   Boolean   @default(false)
+  searchedAt  DateTime  @default(now())
+
+  @@unique([workspaceId, provider, query, cellKey])
+}
+
+model DiscoveryProviderSetting {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider          String
+  enabled           Boolean   @default(true)
+  dailyRequestLimit Int       @default(1000)
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([workspaceId, provider])
+}
+
+model ProviderUsage {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider      String
+  day           String
+  requests      Int       @default(0)
+  results       Int       @default(0)
+  errors        Int       @default(0)
+  costCents     Int       @default(0)
+  lastSuccessAt DateTime?
+  lastError     String?
+  lastErrorAt   DateTime?
+
+  @@unique([workspaceId, provider, day])
+}
+
+/// Evidence for the CASL basis on which an address may (or may not) receive commercial email.
+model ConsentRecord {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  businessId   String?
+  contactId    String?
+  contact      Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  email        String
+  /// EXPRESS | IMPLIED_CONSPICUOUS_PUBLICATION | IMPLIED_EXISTING_RELATIONSHIP | NONE
+  basis        String
+  eligible     Boolean
+  reason       String
+  sourceUrl    String?
+  evidence     Json      @default("{}")
+  recordedById String?
+  createdAt    DateTime  @default(now())
+  withdrawnAt  DateTime?
+
+  @@index([workspaceId, email])
+  @@index([businessId])
+}
+
+/// "AutoProspect": one click runs discovery → contacts → audits → prompts → drafts → outreach queue.
+model AutomationRun {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaignId     String?
+  discoveryRunId String?
+  name           String
+  /// QUEUED | RUNNING | PAUSED | COMPLETED | CANCELLED | FAILED
+  status         String    @default("QUEUED")
+  /// DISCOVERY | PROCESSING | DONE
+  phase          String    @default("DISCOVERY")
+  config         Json      @default("{}")
+  counters       Json      @default("{}")
+  aiRequests     Int       @default(0)
+  placesRequests Int       @default(0)
+  costCents      Int       @default(0)
+  message        String?
+  error          String?
+  createdById    String?
+  checkpointAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  finishedAt     DateTime?
+
+  items AutomationItem[]
+
+  @@index([workspaceId, createdAt])
+}
+
+/// Per-business progress inside an AutomationRun, so resumed runs never redo finished steps.
+model AutomationItem {
+  id             String        @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runId          String
+  run            AutomationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  businessId     String
+  /// PENDING | DONE | SKIPPED | FAILED
+  status         String        @default("PENDING")
+  contactsAt     DateTime?
+  auditAt        DateTime?
+  promptAt       DateTime?
+  draftAt        DateTime?
+  draftMessageId String?
+  emailsFound    Int           @default(0)
+  eligibility    String?
+  skipReason     String?
+  error          String?
+  attempts       Int           @default(0)
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([runId, businessId])
+  @@index([runId, status])
+}
+
+model OutreachApproval {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messageId   String    @unique
+  businessId  String?
+  email       String
+  /// APPROVED | REJECTED | AUTO_SENT
+  decision    String
+  eligibility Json      @default("{}")
+  decidedById String?
+  decidedAt   DateTime  @default(now())
+
+  @@index([workspaceId, decidedAt])
 }
 
 model LeadStatusChange {

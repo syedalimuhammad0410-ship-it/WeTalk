@@ -44,6 +44,11 @@ export async function checkSendAllowed(input: Pick<SendInput, "workspaceId" | "t
   if (compliance.blockFreeEmailDomains && ["OUTREACH", "FOLLOW_UP"].includes(input.kind) && FREE_DOMAINS.includes(to.split("@")[1]!)) {
     throw new AppError("SUPPRESSED", "Workspace compliance settings block cold outreach to free personal email domains.");
   }
+  if (["OUTREACH", "FOLLOW_UP"].includes(input.kind)) {
+    // CASL: an address judged ineligible (no-solicitation notice, irrelevant role, withdrawn consent) never gets commercial email.
+    const blocked = await db.contact.findFirst({ where: { workspaceId: input.workspaceId, email: to, eligibility: "INELIGIBLE" }, select: { eligibilityReason: true } });
+    if (blocked) throw new AppError("SUPPRESSED", `${to} is not eligible for commercial email: ${blocked.eligibilityReason ?? "no valid consent basis"} Nothing was sent. If you have express consent, record it on the lead's Contacts tab.`);
+  }
   if (input.businessId) {
     const b = await db.business.findFirst({ where: { id: input.businessId, workspaceId: input.workspaceId } });
     if (!b) throw new AppError("NOT_FOUND", "Lead not found.");
@@ -66,13 +71,15 @@ export async function checkSendAllowed(input: Pick<SendInput, "workspaceId" | "t
   return compliance;
 }
 
-function composeFinalBody(body: string, account: EmailAccount, compliance: Awaited<ReturnType<typeof getSettings>>["compliance"], kind: MessageKind, aiGenerated: boolean) {
+function composeFinalBody(body: string, account: EmailAccount, compliance: Awaited<ReturnType<typeof getSettings>>["compliance"], kind: MessageKind, aiGenerated: boolean, unsubscribeLink?: string) {
   const parts = [body.trim()];
   if (account.signature.trim()) parts.push(account.signature.trim());
   const footer: string[] = [];
   if (aiGenerated && compliance.aiDisclosureEnabled && compliance.aiDisclosureText.trim()) footer.push(compliance.aiDisclosureText.trim());
   if (["OUTREACH", "FOLLOW_UP"].includes(kind)) {
     if (compliance.includeUnsubscribeFooter && compliance.unsubscribeText.trim()) footer.push(compliance.unsubscribeText.trim());
+    // CASL: a working, one-step unsubscribe mechanism in every commercial message.
+    if (compliance.includeUnsubscribeFooter && unsubscribeLink) footer.push(`Unsubscribe: ${unsubscribeLink}`);
     if (compliance.physicalAddress.trim()) footer.push(compliance.physicalAddress.trim());
   }
   if (footer.length) parts.push(`--\n${footer.join("\n")}`);
@@ -91,7 +98,8 @@ export async function sendEmail(input: SendInput) {
   if (!input.body.trim()) throw new AppError("VALIDATION", "Message body is required.");
   if (/\{\{\s*[a-z_]+\s*\}\}/.test(input.subject + input.body)) throw new AppError("VALIDATION", "The email still contains unfilled template variables ({{…}}). Edit them before sending.");
   const to = input.to.trim().toLowerCase();
-  const finalBody = composeFinalBody(input.body, account, compliance, input.kind, Boolean(input.aiGenerated));
+  const { unsubscribeUrl } = await import("./unsubscribe");
+  const finalBody = composeFinalBody(input.body, account, compliance, input.kind, Boolean(input.aiGenerated), unsubscribeUrl(input.workspaceId, to));
   // Outreach drafted outside a campaign still belongs to the campaign the lead is in (most recently added).
   if (!input.campaignId && input.businessId && input.kind === "OUTREACH") {
     const member = await db.campaignLead.findFirst({ where: { businessId: input.businessId, campaign: { workspaceId: input.workspaceId } }, orderBy: { addedAt: "desc" }, select: { campaignId: true } });

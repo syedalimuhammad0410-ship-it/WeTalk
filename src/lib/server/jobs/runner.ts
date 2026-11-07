@@ -71,12 +71,15 @@ async function maintenance(force = false) {
   if (!force && Date.now() - lastTick < 120_000) return;
   lastTick = Date.now();
   await recoverStaleJobs();
-  const workspaces = await db.workspace.findMany({ select: { id: true, emailAccounts: { select: { provider: true } } } });
+  const workspaces = await db.workspace.findMany({ select: { id: true, emailAccounts: { select: { provider: true } }, automation: { select: { automationPaused: true, inboxMonitoringEnabled: true, followUpSchedulingEnabled: true } } } });
   for (const w of workspaces) {
-    if (w.emailAccounts.some((a) => a.provider === "GMAIL")) {
+    // Automation Control Center: global pause and per-feature switches.
+    if (w.automation?.automationPaused) continue;
+    if (w.automation?.inboxMonitoringEnabled !== false && w.emailAccounts.some((a) => a.provider === "GMAIL")) {
       const pending = await db.job.findFirst({ where: { workspaceId: w.id, type: "EMAIL_SYNC", status: { in: ["QUEUED", "RUNNING"] } } });
       if (!pending) await db.job.create({ data: { workspaceId: w.id, type: "EMAIL_SYNC", label: "Check inbox" } });
     }
+    if (w.automation?.followUpSchedulingEnabled === false) continue;
     const due = await db.followUp.findFirst({ where: { workspaceId: w.id, status: "SCHEDULED", scheduledFor: { lte: new Date() } }, select: { id: true } });
     if (due) {
       const pending = await db.job.findFirst({ where: { workspaceId: w.id, type: "FOLLOW_UP_DISPATCH", status: { in: ["QUEUED", "RUNNING"] } } });

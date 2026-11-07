@@ -408,9 +408,13 @@ async function finalise(
     const ex = r.extracted;
     if (ex) {
       if (!business.email && ex.emails[0]) {
-        patch.email = ex.emails[0];
-        patch.emailSource = `Publicly listed on website (${r.url})`;
-        await tx.contact.create({ data: { workspaceId: business.workspaceId, businessId: business.id, email: ex.emails[0], source: `Website: ${r.url}`, isPrimary: true } });
+        // Contact discovery may already have recorded (and judged) this address — never duplicate it or override an ineligible verdict.
+        const known = await tx.contact.findFirst({ where: { businessId: business.id, email: ex.emails[0] } });
+        if (known?.eligibility !== "INELIGIBLE") {
+          patch.email = ex.emails[0];
+          patch.emailSource = `Publicly listed on website (${r.url})`;
+        }
+        if (!known) await tx.contact.create({ data: { workspaceId: business.workspaceId, businessId: business.id, email: ex.emails[0], source: `Website: ${r.url}`, isPrimary: true, classification: "VERIFIED_PUBLIC", sourceUrl: r.url, role: "General business inquiries" } });
       }
       if (Object.keys(ex.socialLinks).length) patch.socialLinks = { ...(business.socialLinks as object), ...ex.socialLinks };
       if (!business.phone && ex.phones[0]) patch.phone = ex.phones[0];

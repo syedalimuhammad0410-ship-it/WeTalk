@@ -12,6 +12,7 @@ const STOP_STATUSES = ["WON", "LOST", "DO_NOT_CONTACT", "INTERESTED", "MEETING",
 /** Creates the follow-up schedule after initial outreach. Bounded by compliance.maxFollowUps. */
 export async function scheduleFollowUps(workspaceId: string, businessId: string, conversationId: string, campaignId: string | null, sentAt: Date) {
   const { automation, compliance } = await getSettings(workspaceId);
+  if (!automation.followUpSchedulingEnabled) return [];
   const campaign = campaignId ? await db.campaign.findFirst({ where: { id: campaignId, workspaceId } }) : null;
   const days = (campaign?.followUpDays?.length ? campaign.followUpDays : automation.followUpDays).filter((d) => d > 0).sort((a, b) => a - b);
   const steps = days.slice(0, compliance.maxFollowUps);

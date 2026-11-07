@@ -29,6 +29,16 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     Promise.all([db.business.count({ where: { workspaceId: ws } }), db.conversation.count({ where: { workspaceId: ws } }), db.campaign.count({ where: { workspaceId: ws } })]),
   ]);
   const accounts = await db.emailAccount.findMany({ where: { workspaceId: ws }, select: { id: true, provider: true, emailAddress: true, displayName: true, replyTo: true, signature: true, status: true, lastError: true, lastSyncAt: true, isDefault: true, inboundAddress: true } });
+  // Section-specific data, loaded only where it is shown.
+  const extra =
+    section === "providers"
+      ? { providers: await (await import("@/lib/server/discovery/providers")).providerOverview(ws) }
+      : section === "automation-center"
+        ? {
+            runs: await db.automationRun.findMany({ where: { workspaceId: ws }, orderBy: { createdAt: "desc" }, take: 15, select: { id: true, name: true, status: true, createdAt: true, message: true } }),
+            history: await db.activityLog.findMany({ where: { workspaceId: ws, OR: [{ action: { startsWith: "automation." } }, { action: { startsWith: "autoprospect." } }, { action: { startsWith: "discovery." } }, { action: { startsWith: "outreach." } }] }, orderBy: { createdAt: "desc" }, take: 30, select: { id: true, summary: true, createdAt: true } }),
+          }
+        : {};
   const data = {
     section, error: sp.error ?? null, connected: sp.connected ?? null,
     workspace: ctx.workspace, role: ctx.role, permissions: Array.from(ROLE_PERMISSIONS[ctx.role]),
@@ -37,6 +47,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     notificationPrefs: member.notificationPrefs, notificationTypes: NOTIFICATION_TYPES,
     counts: { leads: counts[0], conversations: counts[1], campaigns: counts[2] },
     currentUserId: ctx.user.id,
+    ...extra,
   };
   return (
     <div>

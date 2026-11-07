@@ -32,6 +32,7 @@ export const LeadFilters = z.object({
   tagIds: csv.optional(),
   hasEmail: z.enum(["yes", "no"]).optional(),
   hasPhone: z.enum(["yes", "no"]).optional(),
+  publicEmail: z.enum(["yes", "no"]).optional(),
   archived: z.enum(["yes", "no", "all"]).optional(),
   demo: z.enum(["yes", "no", "all"]).optional(),
   sort: z.enum(["newest", "oldest", "opportunity", "website_score", "name", "last_contacted", "lead_score"]).optional(),
@@ -80,6 +81,9 @@ export function leadWhere(workspaceId: string, f: Partial<LeadFiltersT>): Prisma
   if (f.hasEmail === "no") and.push({ email: null });
   if (f.hasPhone === "yes") and.push({ phone: { not: null } });
   if (f.hasPhone === "no") and.push({ phone: null });
+  const PUBLIC_EMAIL = { email: { not: null }, classification: { in: ["VERIFIED_PUBLIC", "PUBLIC_DIRECTORY", "LICENSED_PROVIDER"] }, verification: { not: "INVALID" } };
+  if (f.publicEmail === "yes") and.push({ contacts: { some: PUBLIC_EMAIL } });
+  if (f.publicEmail === "no") and.push({ contacts: { none: PUBLIC_EMAIL } });
   return { AND: and };
 }
 

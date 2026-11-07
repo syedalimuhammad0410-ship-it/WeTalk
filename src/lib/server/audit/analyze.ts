@@ -242,6 +242,9 @@ export function analyzeHtml(html: string, meta: { url: string; status: number; m
 
   // Visible text
   $("script, style, noscript, svg, template").remove();
+  // Block elements end with a space so adjacent paragraphs don't merge ("info@x.com" + "We…" ≠ "info@x.comwe").
+  $("br").replaceWith(" ");
+  $("p, div, li, td, th, h1, h2, h3, h4, h5, h6, section, article, header, footer, nav, address, blockquote, dd, dt, tr, span, a, label, button").append(" ");
   const text = $("body").text().replace(/\s+/g, " ").trim();
   const wordCount = text ? text.split(" ").length : 0;
   const textEmails = Array.from(new Set((text.match(EMAIL_RE) ?? []).map((e) => e.toLowerCase()).filter((e) => !IGNORED_EMAIL.test(e))));

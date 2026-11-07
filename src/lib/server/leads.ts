@@ -87,6 +87,9 @@ export type BusinessInput = {
   sourceId?: string | null;
   types?: string[];
   isDemo?: boolean;
+  /** How the email was obtained (see Contact.classification); defaults to MANUAL. */
+  emailClassification?: string;
+  emailSourceUrl?: string | null;
 };
 
 export async function findDuplicate(workspaceId: string, input: BusinessInput) {
@@ -115,6 +118,17 @@ export async function findDuplicate(workspaceId: string, input: BusinessInput) {
         (input.address && c.address && normalizeName(c.address) === normalizeName(input.address)),
     );
     if (match) return { business: match, reason: "same name and address" };
+  }
+  // Same business from a different provider: same name within ~150 m.
+  if (name && input.latitude != null && input.longitude != null) {
+    const dLat = 0.00135;
+    const dLng = dLat / Math.max(0.2, Math.cos((input.latitude * Math.PI) / 180));
+    const near = await db.business.findMany({
+      where: { workspaceId, latitude: { gte: input.latitude - dLat, lte: input.latitude + dLat }, longitude: { gte: input.longitude - dLng, lte: input.longitude + dLng } },
+      take: 20,
+    });
+    const match = near.find((c) => c.normalizedName === name || similarNames(c.normalizedName, name));
+    if (match) return { business: match, reason: "same name at the same location" };
   }
   return null;
 }
@@ -190,7 +204,7 @@ export async function upsertBusiness(workspaceId: string, input: BusinessInput, 
       socialLinks: site && isSocialOrDirectoryUrl(site.url) ? { primary: site.url } : {},
       statusHistory: { create: { workspaceId, toStatus: "NEW", changedById: userId ?? null, reason: "Discovered" } },
       contacts: input.email
-        ? { create: { workspaceId, email: input.email.toLowerCase(), source: input.emailSource ?? "Entered manually", isPrimary: true } }
+        ? { create: { workspaceId, email: input.email.toLowerCase(), source: input.emailSource ?? "Entered manually", isPrimary: true, classification: input.emailClassification ?? "MANUAL", sourceUrl: input.emailSourceUrl ?? null, role: "General business inquiries" } }
         : undefined,
     },
   });
@@ -205,7 +219,7 @@ export async function upsertBusiness(workspaceId: string, input: BusinessInput, 
 }
 
 export const sourceLabel = (s: BusinessSource) =>
-  ({ GOOGLE_PLACES: "Google Places", MANUAL: "manual entry", CSV_IMPORT: "CSV import", DEMO: "demo data" })[s];
+  ({ GOOGLE_PLACES: "Google Places", MANUAL: "manual entry", CSV_IMPORT: "CSV import", DEMO: "demo data", OPENSTREETMAP: "OpenStreetMap" })[s];
 
 // ───────────── Status changes ─────────────
 
@@ -283,6 +297,9 @@ export async function changeLeadStatus(input: {
           update: {},
         });
       }
+      // Consent is withdrawn: no address of this business is eligible for outreach any more.
+      await tx.contact.updateMany({ where: { businessId: business.id }, data: { eligibility: "INELIGIBLE", eligibilityReason: input.reason ?? "Marked Do Not Contact", consentBasis: "NONE", lastCheckedAt: new Date() } });
+      await tx.consentRecord.updateMany({ where: { businessId: business.id, withdrawnAt: null }, data: { withdrawnAt: new Date() } });
     }
     if (from === "DO_NOT_CONTACT") {
       const emails = [business.email?.toLowerCase()].filter(Boolean) as string[];
