@@ -97,7 +97,7 @@ async function enqueueSlice(run: Pick<AutomationRun, "id" | "workspaceId" | "cre
   const existing = await db.job.findFirst({ where: { workspaceId: run.workspaceId, type: "AUTOPROSPECT", status: { in: ["QUEUED", "RUNNING"] }, payload: { path: ["runId"], equals: run.id } }, select: { id: true } });
   if (existing) return existing;
   const { enqueueJob } = await import("../jobs/queue");
-  return enqueueJob({ workspaceId: run.workspaceId, type: "AUTOPROSPECT", label: `AutoProspect: ${run.name}`, payload: { runId: run.id }, createdById: run.createdById });
+  return enqueueJob({ workspaceId: run.workspaceId, type: "AUTOPROSPECT", label: `AutoProspect: ${run.name}`, payload: { runId: run.id }, createdById: run.createdById, maxAttempts: 3 });
 }
 
 // ───────────── Per-business pipeline ─────────────

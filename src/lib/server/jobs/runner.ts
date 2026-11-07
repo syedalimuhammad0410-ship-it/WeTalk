@@ -65,12 +65,30 @@ async function runOne() {
   return true;
 }
 
+/** Searches/AutoProspect runs that are still "running" but have no live job (e.g. after a restart) carry on. */
+async function resumeOrphanedRuns() {
+  const quiet = new Date(Date.now() - 5 * 60_000);
+  const active = await db.job.findMany({ where: { type: { in: ["DISCOVERY_RUN", "AUTOPROSPECT"] }, status: { in: ["QUEUED", "RUNNING"] } }, select: { payload: true } });
+  const busy = new Set(active.map((j) => (j.payload as { runId?: string }).runId));
+  const runs = await db.discoveryRun.findMany({ where: { status: { in: ["QUEUED", "RUNNING"] }, automationRunId: null, updatedAt: { lt: quiet } }, select: { id: true, workspaceId: true, createdById: true } });
+  for (const r of runs) {
+    if (busy.has(r.id)) continue;
+    await db.job.create({ data: { workspaceId: r.workspaceId, type: "DISCOVERY_RUN", label: "Resume business search", payload: { runId: r.id }, createdById: r.createdById, maxAttempts: 3 } });
+  }
+  const autos = await db.automationRun.findMany({ where: { status: { in: ["QUEUED", "RUNNING"] }, updatedAt: { lt: quiet } }, select: { id: true, workspaceId: true, createdById: true, name: true } });
+  for (const a of autos) {
+    if (busy.has(a.id)) continue;
+    await db.job.create({ data: { workspaceId: a.workspaceId, type: "AUTOPROSPECT", label: `AutoProspect: ${a.name}`, payload: { runId: a.id }, createdById: a.createdById, maxAttempts: 3 } });
+  }
+}
+
 let lastTick = 0;
 /** Periodic maintenance: enqueue inbox sync + follow-up dispatch, recover stale jobs. */
 async function maintenance(force = false) {
   if (!force && Date.now() - lastTick < 120_000) return;
   lastTick = Date.now();
   await recoverStaleJobs();
+  await resumeOrphanedRuns();
   const workspaces = await db.workspace.findMany({ select: { id: true, emailAccounts: { select: { provider: true } }, automation: { select: { automationPaused: true, inboxMonitoringEnabled: true, followUpSchedulingEnabled: true } } } });
   for (const w of workspaces) {
     // Automation Control Center: global pause and per-feature switches.

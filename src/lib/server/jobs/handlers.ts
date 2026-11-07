@@ -31,6 +31,16 @@ async function forEachLead(ids: string[], ctx: JobContext, verb: string, fn: (id
   return { processed: done, failed: failures.length, failures: failures.slice(0, 50) };
 }
 
+/** Keeps the job's lock fresh while it runs, so a restarted server's orphaned job is re-queued within minutes. */
+async function withHeartbeat<T>(job: Job, fn: () => Promise<T>): Promise<T> {
+  const beat = setInterval(() => void db.job.update({ where: { id: job.id }, data: { lockedAt: new Date() } }).catch(() => {}), 60_000);
+  try {
+    return await fn();
+  } finally {
+    clearInterval(beat);
+  }
+}
+
 export const HANDLERS: Record<Job["type"], Handler> = {
   async DISCOVERY(job, ctx) {
     const p = job.payload as Record<string, unknown>;
@@ -112,11 +122,11 @@ export const HANDLERS: Record<Job["type"], Handler> = {
   },
   async DISCOVERY_RUN(job) {
     const { runDiscoverySlice } = await import("../discovery/run");
-    return runDiscoverySlice((job.payload as { runId: string }).runId);
+    return withHeartbeat(job, () => runDiscoverySlice((job.payload as { runId: string }).runId));
   },
   async AUTOPROSPECT(job) {
     const { runAutoProspectSlice } = await import("../automation/autoprospect");
-    return runAutoProspectSlice((job.payload as { runId: string }).runId);
+    return withHeartbeat(job, () => runAutoProspectSlice((job.payload as { runId: string }).runId));
   },
   async CONTACT_DISCOVERY(job, ctx) {
     const { discoverContacts } = await import("../contacts/discover");

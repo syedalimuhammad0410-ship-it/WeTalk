@@ -37,10 +37,20 @@ export async function claimNextJob(): Promise<Job | null> {
   return db.job.findUnique({ where: { id: rows[0].id } });
 }
 
-/** Re-queues jobs whose worker died mid-run (lock older than 15 minutes). */
+/** Job types that send a heartbeat every minute, so a dead worker is noticed quickly. */
+export const HEARTBEAT_TYPES = ["DISCOVERY_RUN", "AUTOPROSPECT"] as const;
+
+/** Re-queues jobs whose worker died mid-run (e.g. a deploy restarted the server). */
 export async function recoverStaleJobs() {
-  const stale = new Date(Date.now() - 15 * 60_000);
-  const jobs = await db.job.findMany({ where: { status: "RUNNING", lockedAt: { lt: stale } } });
+  const jobs = await db.job.findMany({
+    where: {
+      status: "RUNNING",
+      OR: [
+        { type: { in: [...HEARTBEAT_TYPES] }, lockedAt: { lt: new Date(Date.now() - 3 * 60_000) } },
+        { type: { notIn: [...HEARTBEAT_TYPES] }, lockedAt: { lt: new Date(Date.now() - 15 * 60_000) } },
+      ],
+    },
+  });
   for (const j of jobs) {
     await db.job.update({
       where: { id: j.id },

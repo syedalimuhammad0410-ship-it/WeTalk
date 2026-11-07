@@ -8,7 +8,7 @@ import { classifyBusinessType } from "../intel/classify-type";
 import { normalizeWebsite, upsertBusiness } from "../leads";
 import { getSettings, markIntegration, resolveIntegrationKey } from "../workspace";
 import { brandKey, smallBusinessCheck } from "./small-business";
-import { canSplit, cellKey, circleBounds, distanceKm, initialCellKm, parseLocations, resolveAreaWithGoogle, resolveAreaWithOsm, splitBounds, tileBounds, type Area, type Bounds } from "./geo";
+import { canSplit, cellKey, circleBounds, distanceKm, initialCellKm, parseLocations, resolveAreaWithGoogle, resolveAreaWithOsm, splitBounds, tileBounds, type Area, type Bounds, type LatLng } from "./geo";
 import { PROVIDER_IDS, PROVIDERS, providerSettings, recordUsage, usageToday, type FoundBusiness, type ProviderId } from "./providers";
 
 export const RunOptions = z.object({
@@ -65,7 +65,7 @@ export async function enqueueDiscoveryRun(run: Pick<DiscoveryRun, "id" | "worksp
   const running = await db.job.findFirst({ where: { workspaceId: run.workspaceId, type: "DISCOVERY_RUN", status: { in: ["QUEUED", "RUNNING"] }, payload: { path: ["runId"], equals: run.id } }, select: { id: true } });
   if (running) return running;
   const { enqueueJob } = await import("../jobs/queue");
-  return enqueueJob({ workspaceId: run.workspaceId, type: "DISCOVERY_RUN", label: label ?? "Large-area business discovery", payload: { runId: run.id }, createdById: run.createdById });
+  return enqueueJob({ workspaceId: run.workspaceId, type: "DISCOVERY_RUN", label: label ?? "Large-area business discovery", payload: { runId: run.id }, createdById: run.createdById, maxAttempts: 3 });
 }
 
 // ───────────── Planning ─────────────
@@ -93,6 +93,16 @@ async function resolveArea(workspaceId: string, location: string, preferGoogle: 
 }
 
 const intersects = (a: Bounds, b: Bounds) => a.south <= b.north && b.south <= a.north && a.west <= b.east && b.west <= a.east;
+const OSM_MAX_CELL_KM = 20;
+const nearestPoint = (b: Bounds, c: LatLng): LatLng => ({ lat: Math.min(Math.max(c.lat, b.south), b.north), lng: Math.min(Math.max(c.lng, b.west), b.east) });
+
+/** Drops zones entirely outside every search circle and searches the zones nearest the chosen locations first. */
+export function orderTiles(tiles: Bounds[], centers: LatLng[], circles: { lat: number; lng: number; r: number }[]) {
+  const inside = circles.length ? tiles.filter((b) => circles.some((c) => distanceKm(c, nearestPoint(b, c)) <= c.r)) : tiles;
+  if (!centers.length) return inside;
+  const d = (b: Bounds) => Math.min(...centers.map((c) => distanceKm(c, nearestPoint(b, c))));
+  return [...inside].sort((a, b) => d(a) - d(b));
+}
 
 /** Overlapping search areas (e.g. Toronto + Brampton, 100 km each) are searched once, as one combined area. */
 function mergeOverlapping(items: { label: string; bounds: Bounds }[]) {
@@ -137,6 +147,7 @@ export async function planZones(run: DiscoveryRun, only?: { locations?: string[]
   let planned = 0;
   let googleError: string | null = null;
   const areas: { label: string; bounds: Bounds }[] = [];
+  const centers: LatLng[] = [];
   for (const location of locations) {
     let area: Area;
     try {
@@ -154,6 +165,7 @@ export async function planZones(run: DiscoveryRun, only?: { locations?: string[]
       if (!circles.some((c) => c.lat === area.center.lat && c.lng === area.center.lng)) circles.push({ ...area.center, r: opts.radiusKm });
     }
     areas.push({ label: location, bounds });
+    centers.push(area.center);
   }
   if (googleError && providers.includes("google_places")) {
     // Don't plan zones Google will refuse: use OpenStreetMap for this search.
@@ -163,8 +175,10 @@ export async function planZones(run: DiscoveryRun, only?: { locations?: string[]
     await notify({ workspaceId: run.workspaceId, type: "API_FAILURE", title: "Google Places refused your API key", body: `${googleError} Searches use OpenStreetMap until it is fixed.`, link: "/settings/integrations" });
   }
   for (const { label: location, bounds } of mergeOverlapping(areas)) {
-    const tiles = tileBounds(bounds, cellSizeFor(opts.coverage, bounds, automation.geoExpansionEnabled));
+    const cell = cellSizeFor(opts.coverage, bounds, automation.geoExpansionEnabled);
     for (const provider of providers) {
+      // Free OpenStreetMap servers answer small zones quickly; big ones time out.
+      const tiles = orderTiles(tileBounds(bounds, provider === "openstreetmap" ? Math.min(cell, OSM_MAX_CELL_KM) : cell), centers, circles);
       // OpenStreetMap answers every business type in one request per zone.
       for (const query of provider === "openstreetmap" ? [queries.join(" | ")] : queries) {
         const rows = tiles.map((b, i) => ({

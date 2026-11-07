@@ -92,6 +92,17 @@ const KEYWORD_TAGS: [RegExp, string[]][] = [
   [/photograph/i, ['["craft"="photographer"]', '["shop"="photo"]']],
   [/print/i, ['["shop"="copyshop"]', '["craft"="printer"]']],
   [/tailor|alteration/i, ['["craft"="tailor"]', '["shop"="tailor"]']],
+  [/paint/i, ['["craft"="painter"]']],
+  [/mover|moving/i, ['["office"="moving_company"]', '["shop"="moving"]']],
+  [/daycare|child ?care|preschool/i, ['["amenity"="childcare"]', '["amenity"="kindergarten"]']],
+  [/tutor|learning cent/i, ['["amenity"="prep_school"]', '["office"="tutoring"]']],
+  [/locksmith/i, ['["shop"="locksmith"]', '["craft"="locksmith"]']],
+  [/carpet|floor/i, ['["shop"="flooring"]', '["shop"="carpet"]', '["craft"="floorer"]']],
+  [/window|door/i, ['["craft"="window_construction"]', '["shop"="doors"]']],
+  [/pest|exterminat/i, ['["office"="pest_control"]', '["craft"="pest_control"]']],
+  [/optometr|eye care/i, ['["healthcare"="optometrist"]', '["shop"="optician"]']],
+  [/pharmac/i, ['["amenity"="pharmacy"]']],
+  [/caterer|catering/i, ['["craft"="caterer"]']],
   [/office/i, ['["office"="company"]']],
 ];
 
@@ -113,10 +124,11 @@ export function overpassQuery(query: string, b: Bounds) {
   const bbox = `${b.south},${b.west},${b.north},${b.east}`;
   const parts = query.split(" | ").map((p) => p.trim()).filter(Boolean);
   const tags = Array.from(new Set(parts.flatMap((p) => KEYWORD_TAGS.filter(([re]) => re.test(p)).flatMap(([, t]) => t))));
-  const stems = Array.from(new Set(parts.map((p) => stem(p).replace(/[\\"^$.|?*+()[\]{}]/g, "")).filter((s) => s.length >= 3)));
-  const nameFilters = stems.length ? ["shop", "craft", "office", "amenity", "healthcare"].map((k) => `nwr["name"~"${stems.join("|")}",i]["${k}"](${bbox});`) : [];
+  const stems = Array.from(new Set(parts.map((p) => stem(p).replace(/[\\"^$.|?*+()[\]{}]/g, "")).filter((s) => s.length >= 4)));
+  // Exact tag filters are cheap (indexed); the name search catches businesses with generic tags.
+  const nameFilters = stems.length ? ["shop", "craft", "office"].map((k) => `nwr["${k}"]["name"~"${stems.join("|")}",i](${bbox});`) : [];
   const tagFilters = tags.map((t) => `nwr${t}["name"](${bbox});`);
-  return `[out:json][timeout:90];(${[...tagFilters, ...nameFilters].join("")});out center tags ${OSM_LIMIT};`;
+  return `[out:json][timeout:60];(${[...tagFilters, ...nameFilters].join("")});out center tags ${OSM_LIMIT};`;
 }
 
 /** Public Overpass servers, tried in order (busy or unreachable servers are skipped). */
@@ -179,7 +191,7 @@ const osm: DiscoveryProvider = {
       try {
         const res = await fetchWithTimeout(url, {
           service: "OpenStreetMap Overpass API",
-          timeoutMs: 100000,
+          timeoutMs: 75000,
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "WebScoutAI/1.0 (business discovery for a web agency)", Accept: "application/json" },
           body,
@@ -199,7 +211,9 @@ const osm: DiscoveryProvider = {
       } catch (e) {
         const code = (e as AppError).code;
         if (code === "UPSTREAM_ERROR" || code === "VALIDATION") throw e;
-        last = e; // network error / timeout: try the next server
+        // A slow answer means the zone is too heavy: split it rather than repeating the same query elsewhere.
+        if (code === "UPSTREAM_TIMEOUT") throw new AppError("VALIDATION", "OpenStreetMap took too long for this zone; it will be split into smaller zones.");
+        last = e; // network error: try the next server
       }
     }
     throw last instanceof AppError ? new AppError("RATE_LIMITED", `All OpenStreetMap servers are busy right now (${last.message}). The zone will be retried.`) : new AppError("RATE_LIMITED", "All OpenStreetMap servers are busy right now. The zone will be retried.");
