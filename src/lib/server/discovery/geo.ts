@@ -2,7 +2,22 @@ import "../guard";
 import { AppError, fetchWithTimeout } from "../errors";
 
 export type Bounds = { south: number; west: number; north: number; east: number };
-export type Area = { label: string; bounds: Bounds; source: "google" | "openstreetmap" };
+export type LatLng = { lat: number; lng: number };
+export type Area = { label: string; bounds: Bounds; center: LatLng; source: "google" | "openstreetmap" };
+
+/** Bounding box of a circle (radius in km) around a point. */
+export function circleBounds(c: LatLng, km: number): Bounds {
+  const dLat = km / 111.32;
+  const dLng = km / Math.max(1, 111.32 * Math.cos((c.lat * Math.PI) / 180));
+  return { south: Math.max(-85, c.lat - dLat), west: c.lng - dLng, north: Math.min(85, c.lat + dLat), east: c.lng + dLng };
+}
+
+/** Great-circle distance in km. */
+export function distanceKm(a: LatLng, b: LatLng) {
+  const r = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
 
 const KM_PER_DEG_LAT = 111.32;
 const kmPerDegLng = (lat: number) => Math.max(1, KM_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
@@ -88,7 +103,7 @@ export async function resolveAreaWithGoogle(apiKey: string, location: string): P
   const bounds = v
     ? { south: v.low.latitude, west: v.low.longitude, north: v.high.latitude, east: v.high.longitude }
     : { south: p.location.latitude - 0.1, west: p.location.longitude - 0.15, north: p.location.latitude + 0.1, east: p.location.longitude + 0.15 };
-  return { label: p.formattedAddress ?? location, bounds: roundBounds(bounds), source: "google" };
+  return { label: p.formattedAddress ?? location, bounds: roundBounds(bounds), center: { lat: p.location.latitude, lng: p.location.longitude }, source: "google" };
 }
 
 let lastNominatim = 0;
@@ -103,9 +118,10 @@ export async function resolveAreaWithOsm(location: string): Promise<Area> {
     headers: { "User-Agent": "WebScoutAI/1.0 (business discovery for a web agency)", Accept: "application/json" },
   });
   if (!res.ok) throw new AppError("UPSTREAM_ERROR", `OpenStreetMap could not look up “${location}” (HTTP ${res.status}).`);
-  const rows = (await res.json().catch(() => [])) as { boundingbox?: [string, string, string, string]; display_name?: string }[];
+  const rows = (await res.json().catch(() => [])) as { boundingbox?: [string, string, string, string]; display_name?: string; lat?: string; lon?: string }[];
   const bb = rows[0]?.boundingbox;
   if (!bb) throw new AppError("NOT_FOUND", `Could not find the location “${location}”.`);
   const [s, n, w, e] = bb.map(Number) as [number, number, number, number];
-  return { label: rows[0]!.display_name ?? location, bounds: roundBounds({ south: s, west: w, north: n, east: e }), source: "openstreetmap" };
+  const center = rows[0]!.lat && rows[0]!.lon ? { lat: Number(rows[0]!.lat), lng: Number(rows[0]!.lon) } : { lat: (s + n) / 2, lng: (w + e) / 2 };
+  return { label: rows[0]!.display_name ?? location, bounds: roundBounds({ south: s, west: w, north: n, east: e }), center, source: "openstreetmap" };
 }

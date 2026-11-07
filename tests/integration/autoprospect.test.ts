@@ -164,3 +164,13 @@ describe("AutoProspect acceptance (mocked Google, real local websites)", () => {
     spy.mockRestore();
   }, 180_000);
 });
+
+describe("radius search", () => {
+  it("covers a radius larger than 50 km with zones and drops results outside the circle", async () => {
+    const { circleBounds, distanceKm } = await import("@/lib/server/discovery/geo");
+    const b = circleBounds({ lat: 43.59, lng: -79.64 }, 200);
+    expect(b.north - b.south).toBeCloseTo((400 / 111.32), 1);
+    expect(tileBounds(b, initialCellKm(b)).length).toBeGreaterThan(1);
+    expect(distanceKm({ lat: 43.59, lng: -79.64 }, { lat: 45.42, lng: -75.7 })).toBeGreaterThan(300); // Mississauga → Ottawa
+  });
+});

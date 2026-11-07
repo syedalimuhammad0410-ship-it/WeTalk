@@ -8,7 +8,7 @@ import { classifyBusinessType } from "../intel/classify-type";
 import { normalizeWebsite, upsertBusiness } from "../leads";
 import { getSettings, resolveIntegrationKey } from "../workspace";
 import { brandKey, smallBusinessCheck } from "./small-business";
-import { canSplit, cellKey, initialCellKm, parseLocations, resolveAreaWithGoogle, resolveAreaWithOsm, splitBounds, tileBounds, type Area, type Bounds } from "./geo";
+import { canSplit, cellKey, circleBounds, distanceKm, initialCellKm, parseLocations, resolveAreaWithGoogle, resolveAreaWithOsm, splitBounds, tileBounds, type Area, type Bounds } from "./geo";
 import { PROVIDER_IDS, PROVIDERS, providerSettings, recordUsage, usageToday, type FoundBusiness, type ProviderId } from "./providers";
 
 export const RunOptions = z.object({
@@ -23,6 +23,12 @@ export const RunOptions = z.object({
   excludeNames: z.array(z.string().trim().min(1).max(100)).max(200).default([]),
   excludeDomains: z.array(z.string().trim().min(1).max(200)).max(200).default([]),
   autoAudit: z.boolean().default(false),
+  /** Find publicly listed business emails for new businesses automatically. */
+  findEmails: z.boolean().default(false),
+  /** 0 = the whole named area (city, region, province, country); otherwise a radius around each location's centre. */
+  radiusKm: z.coerce.number().min(0).max(1000).default(0),
+  /** Filled in when zones are planned: the circles results must fall inside. */
+  circles: z.array(z.object({ lat: z.number(), lng: z.number(), r: z.number() })).max(50).default([]),
 });
 export type RunOptionsT = z.infer<typeof RunOptions>;
 
@@ -82,6 +88,7 @@ export async function planZones(run: DiscoveryRun, only?: { locations?: string[]
   const locations = only?.locations ?? run.locations;
   const queries = only?.queries ?? run.queries;
   const notes: string[] = [];
+  const circles = [...opts.circles];
   let planned = 0;
   for (const location of locations) {
     let area: Area;
@@ -91,7 +98,13 @@ export async function planZones(run: DiscoveryRun, only?: { locations?: string[]
       notes.push(`${location}: ${describeError(e)}`);
       continue;
     }
-    const tiles = tileBounds(area.bounds, cellSizeFor(opts.coverage, area.bounds, automation.geoExpansionEnabled));
+    // Radius search: cover the circle around the location's centre (any size — large circles are tiled).
+    let bounds = area.bounds;
+    if (opts.radiusKm > 0) {
+      bounds = circleBounds(area.center, opts.radiusKm);
+      if (!circles.some((c) => c.lat === area.center.lat && c.lng === area.center.lng)) circles.push({ ...area.center, r: opts.radiusKm });
+    }
+    const tiles = tileBounds(bounds, cellSizeFor(opts.coverage, bounds, automation.geoExpansionEnabled));
     for (const provider of run.providers as ProviderId[]) {
       for (const query of queries) {
         const rows = tiles.map((b, i) => ({
@@ -109,6 +122,7 @@ export async function planZones(run: DiscoveryRun, only?: { locations?: string[]
       }
     }
   }
+  if (circles.length !== opts.circles.length) await db.discoveryRun.update({ where: { id: run.id }, data: { options: { ...opts, circles } as Prisma.InputJsonValue } });
   return { planned, notes };
 }
 
@@ -122,6 +136,7 @@ function passesFilters(b: FoundBusiness, o: RunOptionsT, brands: Map<string, Set
   if (o.website === "has" && !b.website) return "website";
   if (o.website === "none" && b.website) return "website";
   if (o.hasPhone && !b.phone) return "phone";
+  if (o.circles.length && b.latitude != null && b.longitude != null && !o.circles.some((c) => distanceKm({ lat: c.lat, lng: c.lng }, { lat: b.latitude!, lng: b.longitude! }) <= c.r)) return "outside radius";
   const lname = b.name.toLowerCase();
   if (o.excludeNames.some((n) => lname.includes(n.toLowerCase()))) return "excluded";
   const domain = normalizeWebsite(b.website)?.domain;
@@ -161,7 +176,7 @@ export async function processDiscoveryRun(runId: string, deadline: number, onPro
   if (!run) return { state: "FAILED", message: "Run not found", createdIds };
   if (!isActiveRun(run.status)) return { state: run.status as SliceResult["state"], message: run.message ?? "", createdIds };
   run = await db.discoveryRun.update({ where: { id: runId }, data: { status: "RUNNING" } });
-  const opts = RunOptions.parse(run.options ?? {});
+  let opts = RunOptions.parse(run.options ?? {});
 
   if (!(await db.discoveryZone.count({ where: { runId } }))) {
     const { planned, notes } = await planZones(run);
@@ -171,6 +186,8 @@ export async function processDiscoveryRun(runId: string, deadline: number, onPro
       return { state: notes.length ? "FAILED" : "COMPLETED", message: msg, createdIds };
     }
     if (notes.length) run = await db.discoveryRun.update({ where: { id: runId }, data: { message: `Some locations were skipped: ${notes.join(" ")}` } });
+    // Planning recorded the radius circles: use them from the first result on.
+    opts = RunOptions.parse((await db.discoveryRun.findUnique({ where: { id: runId }, select: { options: true } }))?.options ?? {});
   }
 
   const settingsByProvider = await providerSettings(run.workspaceId);
@@ -346,9 +363,10 @@ export async function runDiscoverySlice(runId: string, sliceMs = 240_000) {
   const run = await db.discoveryRun.findUnique({ where: { id: runId } });
   if (!run) return r;
   const opts = RunOptions.parse(run.options ?? {});
-  if (opts.autoAudit && r.createdIds.length && !run.automationRunId) {
+  if (r.createdIds.length && !run.automationRunId && (opts.autoAudit || opts.findEmails)) {
     const { enqueueJob } = await import("../jobs/queue");
-    await enqueueJob({ workspaceId: run.workspaceId, type: "WEBSITE_AUDIT", label: `Analyse ${r.createdIds.length} new businesses`, payload: { businessIds: r.createdIds }, createdById: run.createdById });
+    if (opts.findEmails) await enqueueJob({ workspaceId: run.workspaceId, type: "CONTACT_DISCOVERY", label: `Find public emails for ${r.createdIds.length} new businesses`, payload: { businessIds: r.createdIds }, createdById: run.createdById });
+    if (opts.autoAudit) await enqueueJob({ workspaceId: run.workspaceId, type: "WEBSITE_AUDIT", label: `Analyse ${r.createdIds.length} new businesses`, payload: { businessIds: r.createdIds }, createdById: run.createdById });
   }
   if (r.state === "YIELD") await enqueueDiscoveryRun(run);
   else if (r.state === "COMPLETED" && !run.automationRunId) {

@@ -22,6 +22,7 @@ export const AutoProspectInput = z.object({
   maxRequests: z.coerce.number().int().min(1).max(50000).default(300),
   budgetCents: z.coerce.number().int().min(0).max(10_000_000).default(0),
   coverage: z.enum(["auto", "local", "regional", "provincial", "national"]).default("auto"),
+  radiusKm: z.coerce.number().min(0).max(1000).default(0),
   website: z.enum(["any", "has", "none"]).default("any"),
   hasPhone: z.boolean().default(false),
   minRating: z.coerce.number().min(0).max(5).default(0),
@@ -79,6 +80,7 @@ export async function createAutoProspect(workspaceId: string, userId: string, in
       options: {
         coverage: input.coverage, website: input.website, hasPhone: input.hasPhone, minRating: input.minRating, openStatus: "operational", smallOnly: input.smallOnly,
         includeExisting: input.includeExisting, repeatSearches: input.repeatSearches, excludeNames: input.excludeNames, excludeDomains: input.excludeDomains, autoAudit: false,
+        findEmails: false, radiusKm: input.radiusKm, circles: [],
       },
     }, { automationRunId: run.id });
     await db.automationRun.update({ where: { id: run.id }, data: { discoveryRunId: disc.id } });

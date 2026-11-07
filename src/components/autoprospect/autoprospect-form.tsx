@@ -20,7 +20,7 @@ export function AutoProspectForm({ templates, providers, paused, outreachMode, c
   const [adv, setAdv] = useState(false);
   const [busy, setBusy] = useState(false);
   const [f, setF] = useState({
-    name: "", locations: "", categories: "", keywords: "", coverage: "auto", target: "200", maxRequests: "300", budget: "",
+    name: "", locations: "", categories: "", keywords: "", coverage: "auto", radiusKm: "0", target: "200", maxRequests: "300", budget: "",
     website: "any", hasPhone: false, requireEmail: false, minRating: "0", minOpportunity: "0", minWebsiteScore: "0", maxWebsiteScore: "100",
     smallOnly: true, includeExisting: false, repeatSearches: false, excludeNames: "", excludeDomains: "",
     contacts: true, audit: true, prompts: true, drafts: true, maxAiEmails: "50", concurrency: "2", templateId: "",
@@ -45,7 +45,7 @@ export function AutoProspectForm({ templates, providers, paused, outreachMode, c
         body: {
           name: f.name || `${list(f.categories)[0] ?? "Prospects"} — ${list(f.locations)[0] ?? ""}`.slice(0, 120),
           locations: f.locations.split(/\n|;/).map((x) => x.trim()).filter(Boolean), categories: list(f.categories), keywords: list(f.keywords), providers: providersSel,
-          target: +f.target, maxRequests: +f.maxRequests, budgetCents: f.budget ? Math.round(Number(f.budget) * 100) : 0, coverage: f.coverage,
+          target: +f.target, maxRequests: +f.maxRequests, radiusKm: +f.radiusKm, budgetCents: f.budget ? Math.round(Number(f.budget) * 100) : 0, coverage: f.coverage,
           website: f.website, hasPhone: f.hasPhone, requireEmail: f.requireEmail, minRating: +f.minRating, minOpportunity: +f.minOpportunity, minWebsiteScore: +f.minWebsiteScore, maxWebsiteScore: +f.maxWebsiteScore,
           smallOnly: f.smallOnly, includeExisting: f.includeExisting, repeatSearches: f.repeatSearches, excludeNames: list(f.excludeNames), excludeDomains: list(f.excludeDomains),
           steps: { contacts: f.contacts, audit: f.audit, prompts: f.prompts, drafts: f.drafts }, maxAiEmails: +f.maxAiEmails, concurrency: +f.concurrency, templateId: f.templateId || null,
@@ -91,6 +91,7 @@ export function AutoProspectForm({ templates, providers, paused, outreachMode, c
                 <Field label="Business categories" htmlFor="ap-c" required hint="Comma-separated."><Input id="ap-c" value={f.categories} onChange={set("categories")} placeholder="commercial cleaning, office cleaning" /></Field>
                 <Field label="Extra search keywords" htmlFor="ap-k" hint="Optional variations searched as well."><Input id="ap-k" value={f.keywords} onChange={set("keywords")} placeholder="janitorial services" /></Field>
               </div>
+              <Field label="Search radius" htmlFor="ap-rad" hint="Around each location's centre, or the whole named area."><Select id="ap-rad" value={f.radiusKm} onChange={set("radiusKm")}>{[5, 10, 25, 50, 100, 150, 200, 300, 500].map((r) => <option key={r} value={r}>{r} km</option>)}<option value="0">Entire area (city / region / province / country)</option></Select></Field>
               <Field label="Geographic coverage" htmlFor="ap-cov" hint="Large areas are split into overlapping zones; busy zones are split further automatically."><Select id="ap-cov" value={f.coverage} onChange={set("coverage")}><option value="auto">Automatic (recommended)</option><option value="local">Local — one search per location</option><option value="regional">Regional — 50 km zones</option><option value="provincial">Provincial — 100 km zones</option><option value="national">National — 200 km zones</option></Select></Field>
               <Field label="Data providers"><div className="flex flex-col gap-1.5 pt-1">
                 <Checkbox checked={f.google} onChange={tick("google")} label={`Google Places${google?.connected ? "" : " (not connected)"}`} disabled={!google?.connected} />
