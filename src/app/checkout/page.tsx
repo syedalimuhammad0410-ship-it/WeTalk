@@ -28,6 +28,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
       initialPlan={plan ?? (sub ? null : "FREE")}
       initialCycle={sp.cycle?.toUpperCase() === "YEARLY" ? "YEARLY" : "MONTHLY"}
       paypal={pp.enabled ? { clientId: pp.clientId, currency: pp.currency, live: pp.mode === "live" } : null}
+      billingCurrency={pp.currency}
     />
   );
 }

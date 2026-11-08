@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, BarChart3, Check, FileCode2, Gauge, Inbox, Mail, MapPinned, MessageSquareReply, Phone, Rocket, Search, ShieldCheck, Sparkles, Target } from "lucide-react";
 import { getSessionUser } from "@/lib/server/auth";
+import { paypalConfig } from "@/lib/server/paypal";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { PricingTable } from "@/components/marketing/pricing-table";
 
@@ -142,7 +143,7 @@ export default async function Home() {
       <section id="pricing" className="scroll-mt-20 border-t border-border bg-surface/60">
         <div className="mx-auto max-w-6xl px-4 py-20">
           <div className="text-center"><div className="text-sm font-semibold uppercase tracking-wide text-accent">Pricing</div><h2 className="mt-2 text-3xl font-bold tracking-tight">Start free. Upgrade when the clients start coming in.</h2><p className="mt-3 text-muted">Every plan has every feature — you only choose how many new leads you need each month.</p></div>
-          <div className="mt-10"><PricingTable loggedIn={loggedIn} /></div>
+          <div className="mt-10"><PricingTable loggedIn={loggedIn} currency={paypalConfig().currency} /></div>
         </div>
       </section>
 

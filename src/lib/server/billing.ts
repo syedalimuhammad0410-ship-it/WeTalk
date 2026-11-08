@@ -175,5 +175,5 @@ export async function billingOverview(workspaceId: string) {
     leadAllowance(workspaceId),
     db.billingPayment.findMany({ where: { workspaceId }, orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
-  return { subscription: sub, allowance: { ...allowance, remaining: Number.isFinite(allowance.remaining) ? allowance.remaining : null }, payments, paypalEnabled: paypalConfig().enabled };
+  return { subscription: sub, allowance: { ...allowance, remaining: Number.isFinite(allowance.remaining) ? allowance.remaining : null }, payments, paypalEnabled: paypalConfig().enabled, currency: paypalConfig().currency };
 }

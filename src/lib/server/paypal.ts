@@ -6,7 +6,7 @@ import { getPlan, type Cycle, type PlanId } from "../plans";
  * PayPal Subscriptions (REST API). Every payment — PayPal balance or a card through
  * PayPal's card button — goes to the PayPal account that owns PAYPAL_CLIENT_ID.
  * Configure in the host's environment: PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET,
- * PAYPAL_MODE (sandbox|live), optional PAYPAL_CURRENCY (default USD) and PAYPAL_WEBHOOK_ID.
+ * PAYPAL_MODE (sandbox|live), optional PAYPAL_CURRENCY (default CAD) and PAYPAL_WEBHOOK_ID.
  */
 export function paypalConfig() {
   const clientId = process.env.PAYPAL_CLIENT_ID?.trim() ?? "";
@@ -17,7 +17,8 @@ export function paypalConfig() {
     clientId,
     secret,
     mode,
-    currency: (process.env.PAYPAL_CURRENCY?.trim() || "USD").toUpperCase(),
+    /** Plans are billed in this currency; prices keep the same numbers (9.99 means 9.99 CAD). */
+    currency: (process.env.PAYPAL_CURRENCY?.trim() || "CAD").toUpperCase(),
     webhookId: process.env.PAYPAL_WEBHOOK_ID?.trim() ?? "",
     base: mode === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com",
   };

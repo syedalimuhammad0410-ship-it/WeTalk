@@ -43,7 +43,7 @@ export function BillingSettings({ d }: { d: any }) {
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-2xl font-semibold">{plan.name}</span>
             <Badge tone={sub.plan === "FREE" ? "zinc" : "green"}>{sub.status.toLowerCase()}</Badge>
-            <span className="text-sm text-muted">{sub.priceCents ? `${money(sub.priceCents)} / ${sub.cycle === "YEARLY" ? "year" : "month"}` : "$0"} · {leadsLabel(plan)}</span>
+            <span className="text-sm text-muted">{sub.priceCents ? `${money(sub.priceCents)}${b.currency && b.currency !== "USD" ? ` ${b.currency}` : ""} / ${sub.cycle === "YEARLY" ? "year" : "month"}` : "$0"} · {leadsLabel(plan)}</span>
           </div>
           {sub.plan !== "FREE" && !sub.note && <div className="text-sm text-muted">Current period ends <DateTimeText d={sub.currentPeriodEnd} /></div>}
           <div>

@@ -66,8 +66,9 @@ describe("PayPal subscriptions", () => {
     const b = await paypalPlanId("GROWTH", "YEARLY");
     expect(a).not.toBe(b);
     expect(pp.products).toHaveLength(1);
-    expect(pp.plans.map((p) => p.name)).toEqual(["WebScout AI Starter — monthly 9.99 USD", "WebScout AI Growth — yearly 209.00 USD"]);
-    expect(pp.plans[1].body).toMatchObject({ billing_cycles: [{ frequency: { interval_unit: "YEAR", interval_count: 1 }, total_cycles: 0, pricing_scheme: { fixed_price: { value: "209.00", currency_code: "USD" } } }] });
+    // Billed in Canadian dollars by default, at the same numbers.
+    expect(pp.plans.map((p) => p.name)).toEqual(["WebScout AI Starter — monthly 9.99 CAD", "WebScout AI Growth — yearly 209.00 CAD"]);
+    expect(pp.plans[1].body).toMatchObject({ billing_cycles: [{ frequency: { interval_unit: "YEAR", interval_count: 1 }, total_cycles: 0, pricing_scheme: { fixed_price: { value: "209.00", currency_code: "CAD" } } }] });
     // A fresh server process finds the existing plans in PayPal instead of creating duplicates.
     resetPayPalForTests();
     expect(await paypalPlanId("STARTER", "MONTHLY")).toBe(a);

@@ -16,12 +16,13 @@ type Props = {
   userName: string; hasWorkspace: boolean; workspaceName: string | null; canManage: boolean; currentPlan: string | null; onboardingDone: boolean; initialPlan: PlanId | null; initialCycle: Cycle;
   /** Set when PayPal keys are configured: real payments. Otherwise checkout runs in demo mode. */
   paypal: { clientId: string; currency: string; live: boolean } | null;
+  billingCurrency: string;
 };
 
 const STEPS = ["Choose a plan", "Payment", "Connect your tools", "Find clients"];
 
 /** Plan selection + payment: real PayPal subscriptions when configured, otherwise a demo (card details stay in the browser). */
-export function Checkout({ userName, hasWorkspace, workspaceName, canManage, currentPlan, onboardingDone, initialPlan, initialCycle, paypal }: Props) {
+export function Checkout({ userName, hasWorkspace, workspaceName, canManage, currentPlan, onboardingDone, initialPlan, initialCycle, paypal, billingCurrency }: Props) {
   const router = useRouter();
   const toast = useToast();
   const [planId, setPlanId] = useState<PlanId>(initialPlan ?? (currentPlan as PlanId) ?? "FREE");
@@ -37,7 +38,7 @@ export function Checkout({ userName, hasWorkspace, workspaceName, canManage, cur
   const deal = yearlyDeal(plan);
   const isCurrent = currentPlan === planId;
   const usePayPal = Boolean(paypal) && amount > 0;
-  const currency = paypal && paypal.currency !== "USD" ? ` ${paypal.currency}` : "";
+  const currency = billingCurrency !== "USD" ? ` ${billingCurrency}` : "";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -110,7 +111,7 @@ export function Checkout({ userName, hasWorkspace, workspaceName, canManage, cur
       <div className="mx-auto max-w-6xl">
         <div className="text-center">
           <h1 className="text-3xl font-semibold tracking-tight">{hasWorkspace ? "Change your plan" : `Welcome, ${userName.split(" ")[0]} — choose your plan`}</h1>
-          <p className="mt-2 text-muted">Every plan includes every feature. Plans differ only in how many new leads you can find each month.</p>
+          <p className="mt-2 text-muted">Every plan includes every feature. Plans differ only in how many new leads you can find each month.{currency && ` Prices in${currency}.`}</p>
           <div className="mt-5 inline-flex rounded-full border border-border bg-surface p-1 text-sm">
             {(["MONTHLY", "YEARLY"] as const).map((c) => (
               <button key={c} type="button" onClick={() => setCycle(c)} className={cn("rounded-full px-4 py-1.5 font-medium transition-colors", cycle === c ? "bg-accent text-accent-fg" : "text-muted hover:text-fg")}>
@@ -130,7 +131,7 @@ export function Checkout({ userName, hasWorkspace, workspaceName, canManage, cur
                 {p.highlight && <span className="absolute -top-2.5 right-4 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-semibold text-accent-fg">Most popular</span>}
                 {currentPlan === p.id && <span className="absolute -top-2.5 left-4 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-semibold text-white">Current plan</span>}
                 <div className="flex items-center justify-between"><span className="font-semibold">{p.name}</span>{selected && <CheckCircle2 className="h-5 w-5 text-accent" />}</div>
-                <div className="mt-3 flex items-baseline gap-1"><span className="text-3xl font-bold">{price === 0 ? "$0" : money(price)}</span><span className="text-sm text-muted">{price === 0 ? "forever" : cycle === "YEARLY" ? "/year" : "/month"}</span></div>
+                <div className="mt-3 flex items-baseline gap-1"><span className="text-3xl font-bold">{price === 0 ? "$0" : money(price)}</span><span className="text-sm text-muted">{price === 0 ? "forever" : `${currency.trim()}/${cycle === "YEARLY" ? "year" : "month"}`}</span></div>
                 {cycle === "YEARLY" && p.monthlyCents > 0 && <div className="mt-1 text-xs text-emerald-600">≈ {money(Math.round(yearlyDeal(p).perMonth))}/month · save {money(yearlyDeal(p).saving)}</div>}
                 <div className="mt-3 text-sm font-medium">{leadsLabel(p)}</div>
                 <div className="mt-1 text-xs text-muted">{p.bestFor}</div>

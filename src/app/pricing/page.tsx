@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getSessionUser } from "@/lib/server/auth";
+import { paypalConfig } from "@/lib/server/paypal";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { PricingTable } from "@/components/marketing/pricing-table";
 
@@ -15,7 +16,7 @@ export default async function PricingPage() {
           <h1 className="text-4xl font-bold tracking-tight">Simple pricing that grows with your client list</h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-muted">Start free with 5 leads a month to test everything on real businesses. When WebScout starts bringing you clients, pick the plan that matches how fast you want to grow.</p>
         </div>
-        <div className="mt-12"><PricingTable loggedIn={loggedIn} /></div>
+        <div className="mt-12"><PricingTable loggedIn={loggedIn} currency={paypalConfig().currency} /></div>
         <div className="mt-12 grid gap-5 md:grid-cols-3">
           {[
             ["What's a lead?", "A new business WebScout discovers for you in a month — with its website analysed and contact details checked. Businesses you add or import yourself are always free."],

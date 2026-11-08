@@ -6,8 +6,9 @@ import { cn } from "@/lib/utils";
 import { PLANS, PLAN_FEATURES, YEARLY_BENEFITS, leadsLabel, money, priceCents, yearlyDeal, type Cycle } from "@/lib/plans";
 
 /** Public pricing cards with a monthly / yearly switch. */
-export function PricingTable({ loggedIn }: { loggedIn: boolean }) {
+export function PricingTable({ loggedIn, currency }: { loggedIn: boolean; currency: string }) {
   const [cycle, setCycle] = useState<Cycle>("MONTHLY");
+  const per = (unit: string) => `${currency === "USD" ? "" : currency}/${unit}`;
   const href = (plan: string) => {
     const checkout = `/checkout?plan=${plan}&cycle=${cycle}`;
     return loggedIn ? checkout : `/signup?next=${encodeURIComponent(checkout)}`;
@@ -23,6 +24,7 @@ export function PricingTable({ loggedIn }: { loggedIn: boolean }) {
           ))}
         </div>
       </div>
+      <p className="mt-3 text-center text-xs text-muted">All prices in {currency === "CAD" ? "Canadian dollars (CAD)" : currency === "USD" ? "US dollars (USD)" : currency}</p>
       <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         {PLANS.map((p) => {
           const price = priceCents(p, cycle);
@@ -34,7 +36,7 @@ export function PricingTable({ loggedIn }: { loggedIn: boolean }) {
               <div className="text-sm text-muted">{p.tagline}</div>
               <div className="mt-5 flex items-baseline gap-1">
                 <span className="text-4xl font-bold tracking-tight">{price === 0 ? "$0" : money(price)}</span>
-                <span className="text-sm text-muted">{price === 0 ? "forever" : cycle === "YEARLY" ? "/year" : "/month"}</span>
+                <span className="text-sm text-muted">{price === 0 ? "forever" : per(cycle === "YEARLY" ? "year" : "month")}</span>
               </div>
               <div className="mt-1 h-5 text-xs text-emerald-600">{cycle === "YEARLY" && p.monthlyCents > 0 ? `≈ ${money(Math.round(deal.perMonth))}/mo — you save ${money(deal.saving)}` : ""}</div>
               <div className="mt-4 rounded-lg bg-subtle px-3 py-2 text-sm font-semibold">{leadsLabel(p)}</div>
