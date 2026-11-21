@@ -173,3 +173,39 @@ describe("Claude Desktop extension download", () => {
     expect(buf.includes(Buffer.from("server/index.js"))).toBe(true);
   });
 });
+
+describe("Live investigation view data", () => {
+  it("serves one live shape for Claude tasks and Business Finder searches, plus business profiles", async () => {
+    const { liveState, liveControl } = await import("@/lib/server/live");
+    const { businessProfile } = await import("@/lib/server/profile");
+    const { submitBusinesses, submitFacts } = await import("@/lib/server/claude/results");
+    const { ws, owner } = await makeWorkspace();
+    const { token } = await createConnection(ws.id, owner.id, "Live");
+    const conn = (await (await import("@/lib/server/claude/connections")).authenticateToken(token))!;
+    const task = await createTask(ws.id, owner.id, CreateTaskInput.parse({ type: "FIND_LEADS", params: { locations: ["Toronto, ON"], businessTypes: ["bakeries"], count: 2 } }));
+    await db.claudeTask.update({ where: { id: task.id }, data: { status: "RUNNING", claimedAt: new Date(), parameters: { ...(task.parameters as object), area: { center: [-79.38, 43.65] } } } });
+    const running = await db.claudeTask.findUniqueOrThrow({ where: { id: task.id } });
+    const r = await submitBusinesses({ conn, task: running }, [{ name: "Dough Bros", category: "Bakery", city: "Toronto", latitude: 43.65, longitude: -79.39, sources: [{ url: "https://maps.example/dough", type: "MAPS" }], description: "Bagels and bread" }]);
+    const id = r.added[0]!.business_id;
+    await submitFacts({ conn, task: running }, id, [{ field: "size", value: "Small", kind: "estimate", source_type: "OTHER" }]);
+
+    const live = await liveState(ws.id, "claude", task.id);
+    expect(live).toMatchObject({ kind: "claude", status: "RUNNING", area: { center: [-79.38, 43.65] }, controls: { pause: true, resume: false, cancel: true } });
+    expect(live.points).toEqual([expect.objectContaining({ id, name: "Dough Bros", summary: "Bagels and bread", lat: 43.65 })]);
+    expect(live.stats.find((s) => s.key === "found")?.value).toBe(1);
+    expect(live.events.some((e) => e.type === "BUSINESS_CREATED" && e.businessId === id)).toBe(true);
+    expect((await liveControl(ws.id, owner.id, "claude", task.id, "pause")).status).toBe("PAUSED");
+
+    const profile = await businessProfile(ws.id, id);
+    expect(profile).toMatchObject({ name: "Dough Bros", whatTheyDo: "Bagels and bread", estimates: [expect.objectContaining({ field: "size", value: "Small" })], sources: ["https://maps.example/dough"] });
+    const other = await makeWorkspace();
+    await expect(businessProfile(other.ws.id, id)).rejects.toThrow(/not found/i);
+
+    const run = await db.discoveryRun.create({ data: { workspaceId: ws.id, status: "RUNNING", locations: ["Ottawa, ON"], queries: ["florists"], providers: ["openstreetmap"], target: 10, maxRequests: 10, options: {} } });
+    await upsertBusiness(ws.id, { name: "Petal Shop", category: "Florist", city: "Ottawa", latitude: 45.42, longitude: -75.69, source: "OPENSTREETMAP", sourceId: "node/1" });
+    const search = await liveState(ws.id, "search", run.id);
+    expect(search).toMatchObject({ kind: "search", status: "RUNNING", title: "Find florists in Ottawa, ON" });
+    expect(search.points.map((p) => p.name)).toEqual(["Petal Shop"]);
+    expect(search.events.map((e) => e.type)).toEqual(expect.arrayContaining(["TASK_CREATED", "BUSINESS_CREATED"]));
+  });
+});

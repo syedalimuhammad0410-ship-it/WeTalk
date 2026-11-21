@@ -47,7 +47,7 @@ export function BusinessFinder({ googleConfigured, googleError, canRun, campaign
     e.preventDefault();
     setBusy("start");
     try {
-      await apiFetch("/api/discovery-runs", {
+      const started = await apiFetch<{ id: string }>("/api/discovery-runs", {
         body: {
           locations: f.locations.split(/\n|;/).map((x) => x.trim()).filter(Boolean), queries: chosen, providers: [f.google && "google_places", f.osm && "openstreetmap"].filter(Boolean),
           target: +f.target, maxRequests: +f.maxRequests, campaignId: f.campaignId || null,
@@ -55,8 +55,8 @@ export function BusinessFinder({ googleConfigured, googleError, canRun, campaign
         },
       });
       kickJobs();
-      toast.success("Business search started", "It runs in the background — results appear in Leads as they're found.");
-      router.refresh();
+      toast.success("Business search started", "Opening the live map — the search keeps running even if you close it.");
+      router.push(`/discover/live/${started.id}`);
     } catch (err) {
       toast.error("Could not start", (err as Error).message);
     } finally {

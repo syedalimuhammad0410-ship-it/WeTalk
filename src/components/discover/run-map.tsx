@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Card, CardHeader } from "../ui/misc";
+import { ButtonLink } from "../ui/button";
 import { LiveMap, type MapPoint } from "../map/live-map";
 import { apiFetch } from "@/lib/client";
 
@@ -31,7 +32,7 @@ export function RunMap({ runId, label, live }: { runId: string; label: string; l
   }, [runId, isLive]);
   return (
     <Card className="mt-5">
-      <CardHeader title="Search map" description={`${label} — ${isLive ? "new businesses drop onto the map as they're found" : "businesses found by this search"}. Click a pin for details or a 3D view.`} />
+      <CardHeader title="Search map" description={`${label} — ${isLive ? "new businesses drop onto the map as they're found" : "businesses found by this search"}. Click a pin for details or a 3D view.`} action={<ButtonLink size="sm" href={`/discover/live/${runId}`}>{isLive ? "Watch live" : "Open full screen"}</ButtonLink>} />
       <div className="p-4 pt-0"><LiveMap points={points} live={isLive} height={460} emptyText={isLive ? "Searching… the first businesses will appear here." : "No mappable businesses from this search."} /></div>
     </Card>
   );

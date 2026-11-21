@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Bot, CircleStop, Download, Play, Plug, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Button, ButtonLink } from "../ui/button";
 import { Alert, Card, CardHeader, EmptyState, PageHeader, Progress } from "../ui/misc";
@@ -136,7 +137,7 @@ export function CommandCentre({ initial, perms, selectedLeads }: { initial: Stat
                   <tbody>
                     {s.tasks.map((t) => (
                       <tr key={t.id}>
-                        <td className="max-w-[320px]"><Link href={`/claude/tasks/${t.id}`} className="font-medium hover:underline">{t.title}</Link><div className="font-mono text-[11px] text-faint">#{shortId(t.id)}</div></td>
+                        <td className="max-w-[320px]"><Link href={`/claude/live/${t.id}`} className="font-medium hover:underline">{t.title}</Link><div className="font-mono text-[11px] text-faint">#{shortId(t.id)} · <Link href={`/claude/tasks/${t.id}`} className="hover:underline">details</Link></div></td>
                         <td><TaskStatusBadge status={t.status} /></td>
                         <td><Progress value={t.progress} /><div className="mt-1 truncate text-[11px] text-muted">{t.progressMessage}</div></td>
                         <td className="whitespace-nowrap text-xs text-muted">{t.stats.created ?? 0} new · {t.stats.duplicates ?? 0} known{t.stats.drafts ? ` · ${t.stats.drafts} drafts` : ""}</td>
@@ -187,6 +188,7 @@ export function CommandCentre({ initial, perms, selectedLeads }: { initial: Stat
 
 function NewTask({ selectedLeads, onCreated }: { selectedLeads: string[]; onCreated: (t: ClaudeTask) => void }) {
   const toast = useToast();
+  const router = useRouter();
   const [tab, setTab] = useState<"find" | "research">(selectedLeads.length ? "research" : "find");
   const [f, setF] = useState({ locations: "", types: "", count: "10", websiteFilter: "none_or_weak", smallOnly: true, findContacts: true, notes: "" });
   const [r, setR] = useState({ pickBest: "5", emails: "none", focus: "" });
@@ -206,6 +208,7 @@ function NewTask({ selectedLeads, onCreated }: { selectedLeads: string[]; onCrea
       const { task } = await apiFetch<{ task: ClaudeTask }>("/api/claude/tasks", { body });
       setCreated(task);
       onCreated(task);
+      router.push(`/claude/live/${task.id}`); // straight into the live investigation view
     } catch (err) {
       toast.error("Couldn't create the task", (err as Error).message);
     } finally {
@@ -226,7 +229,7 @@ function NewTask({ selectedLeads, onCreated }: { selectedLeads: string[]; onCrea
               <CopyButton text={sayToClaude(created.id)} />
             </div>
             <div className="flex flex-wrap gap-2">
-              <ButtonLink href={`/claude/tasks/${created.id}`}>Watch it live →</ButtonLink>
+              <ButtonLink href={`/claude/live/${created.id}`}>Open live view →</ButtonLink>
               <Button variant="ghost" onClick={() => setCreated(null)}>Create another</Button>
             </div>
           </div>

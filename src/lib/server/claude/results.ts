@@ -168,7 +168,7 @@ export async function submitBusinesses(c: Ctx, items: BusinessItemT[]) {
     const target = params?.count ?? 0;
     if (target) {
       progress = { found_so_far: s.created ?? 0, target };
-      await db.claudeTask.update({ where: { id: c.task.id }, data: { progress: Math.min(95, Math.round(((s.created ?? 0) / target) * 100)), progressMessage: `${s.created ?? 0} of ${target} businesses found` } });
+      await db.claudeTask.update({ where: { id: c.task.id }, data: { progress: Math.min(95, Math.round(((s.created ?? 0) / target) * 100)), progressMessage: (s.created ?? 0) >= target ? `${s.created} businesses found — target of ${target} reached` : `${s.created ?? 0} of ${target} businesses found` } });
     }
   }
   return {

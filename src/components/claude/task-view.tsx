@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Ban, Pause, Play, RotateCcw } from "lucide-react";
-import { Button } from "../ui/button";
+import { ArrowLeft, Ban, Map as MapIcon, Pause, Play, RotateCcw } from "lucide-react";
+import { Button, ButtonLink } from "../ui/button";
 import { Alert, Card, CardHeader, Progress, Stat } from "../ui/misc";
 import { RelTime } from "../ui/time";
 import { useToast } from "../ui/toast";
@@ -60,12 +60,13 @@ export function TaskView({ initial, canControl }: { initial: Data; canControl: b
           <div className="flex flex-wrap items-center gap-2"><h1 className="text-xl font-semibold">{t.title}</h1><TaskStatusBadge status={t.status} /></div>
           <div className="mt-1 text-sm text-muted">Task #{shortId(t.id)} · created <RelTime d={t.createdAt} />{t.finishedAt ? <> · finished <RelTime d={t.finishedAt} /></> : null}</div>
         </div>
-        {canControl && (
+        {(
           <div className="flex flex-wrap gap-2">
-            {active && <Button size="sm" variant="outline" onClick={() => control("pause")} loading={busy === "pause"}><Pause className="h-4 w-4" /> Pause</Button>}
-            {t.status === "PAUSED" && <Button size="sm" onClick={() => control("resume")} loading={busy === "resume"}><Play className="h-4 w-4" /> Resume</Button>}
-            {["QUEUED", "RUNNING", "PAUSED"].includes(t.status) && <Button size="sm" variant="ghost" onClick={() => control("cancel")} loading={busy === "cancel"}><Ban className="h-4 w-4" /> Cancel</Button>}
-            {["FAILED", "CANCELLED"].includes(t.status) && <Button size="sm" variant="outline" onClick={() => control("retry")} loading={busy === "retry"}><RotateCcw className="h-4 w-4" /> Run again</Button>}
+            <ButtonLink size="sm" href={`/claude/live/${t.id}`}><MapIcon className="h-4 w-4" /> Open live view</ButtonLink>
+            {canControl && active && <Button size="sm" variant="outline" onClick={() => control("pause")} loading={busy === "pause"}><Pause className="h-4 w-4" /> Pause</Button>}
+            {canControl && t.status === "PAUSED" && <Button size="sm" onClick={() => control("resume")} loading={busy === "resume"}><Play className="h-4 w-4" /> Resume</Button>}
+            {canControl && ["QUEUED", "RUNNING", "PAUSED"].includes(t.status) && <Button size="sm" variant="ghost" onClick={() => control("cancel")} loading={busy === "cancel"}><Ban className="h-4 w-4" /> Cancel</Button>}
+            {canControl && ["FAILED", "CANCELLED"].includes(t.status) && <Button size="sm" variant="outline" onClick={() => control("retry")} loading={busy === "retry"}><RotateCcw className="h-4 w-4" /> Run again</Button>}
           </div>
         )}
       </div>
