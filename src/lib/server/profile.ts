@@ -8,7 +8,7 @@ export async function businessProfile(workspaceId: string, id: string) {
   if (!b) throw new AppError("NOT_FOUND", "Business not found.");
   const [audit, opp, evidence] = await Promise.all([
     db.websiteAudit.findFirst({ where: { businessId: id, status: "COMPLETED" }, orderBy: { createdAt: "desc" }, select: { classification: true, overallScore: true, summary: true, extracted: true, createdAt: true } }),
-    db.opportunity.findFirst({ where: { businessId: id }, orderBy: { createdAt: "desc" }, select: { score: true, summary: true } }),
+    db.opportunity.findFirst({ where: { businessId: id }, orderBy: { createdAt: "desc" }, select: { score: true, summary: true, reasons: true, recommendedFeatures: true } }),
     db.businessEvidence.findMany({ where: { businessId: id }, orderBy: { createdAt: "desc" }, take: 60, select: { field: true, value: true, kind: true, sourceUrl: true, verified: true } }),
   ]);
   const ai = (audit?.extracted as { ai?: { summary?: string; services?: { name: string }[] } | null } | null)?.ai ?? null;
@@ -39,6 +39,12 @@ export async function businessProfile(workspaceId: string, id: string) {
     estimates: evidence.filter((e) => e.kind === "ESTIMATE").slice(0, 8),
     sources: [...new Set(evidence.filter((e) => e.field === "listing" && e.sourceUrl).map((e) => e.sourceUrl!))].slice(0, 6),
     discoveredAt: b.discoveredAt,
+    source: ({ GOOGLE_PLACES: "Google Places", OPENSTREETMAP: "OpenStreetMap", CLAUDE_RESEARCH: "Claude research", MANUAL: "Added by hand", CSV_IMPORT: "CSV import", DEMO: "Demo data" } as Record<string, string>)[b.source] ?? b.source,
+    hours: b.hours.slice(0, 7),
+    social: Object.entries((b.socialLinks ?? {}) as Record<string, string>).filter(([, u]) => typeof u === "string" && /^https?:\/\//.test(u)).slice(0, 5).map(([k, u]) => ({ label: k, url: u })),
+    // Why it's a good lead (verified reasons first) and what their website is missing.
+    reasons: ((opp?.reasons ?? []) as { label: string; points: number; kind: string }[]).filter((r) => r.points > 0).sort((a, c) => (a.kind === "VERIFIED" ? -1 : 1) - (c.kind === "VERIFIED" ? -1 : 1) || c.points - a.points).slice(0, 4).map((r) => ({ label: r.label, verified: r.kind === "VERIFIED" })),
+    missing: ((opp?.recommendedFeatures ?? []) as { name: string; status: string; priority: string }[]).filter((f) => f.status === "missing").slice(0, 5).map((f) => f.name),
   };
 }
 export type BusinessProfile = Awaited<ReturnType<typeof businessProfile>>;

@@ -39,7 +39,7 @@ const clock = (d: string) => new Date(d).toLocaleTimeString("en-CA", { hour: "2-
 export function EventRow({ e, showTask }: { e: ClaudeEvent; showTask?: boolean }) {
   return (
     <li className="flex gap-3 py-1.5 text-sm">
-      <span className="w-[4.2rem] shrink-0 font-mono text-xs tabular-nums leading-5 text-faint">{clock(e.createdAt)}</span>
+      <span className="w-[4.2rem] shrink-0 font-mono text-xs tabular-nums leading-5 text-faint" suppressHydrationWarning>{clock(e.createdAt)}</span>
       <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", EVENT_TONE[e.type] ?? "bg-zinc-400")} aria-hidden />
       <span className="min-w-0 flex-1 leading-5">
         {e.businessId ? <Link href={`/leads/${e.businessId}`} className="hover:underline">{e.message}</Link> : e.message}

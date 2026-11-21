@@ -101,27 +101,46 @@ body {
 @keyframes ws-pulse { 0% { opacity: 0.6; transform: scale(0.4); } 100% { opacity: 0; transform: scale(2.6); } }
 @media (prefers-reduced-motion: reduce) { .ws-marker.is-new .ws-pin, .ws-marker.is-new .ws-pulse { animation: none; } }
 
-/* Full-screen live investigation view */
+/* Full-screen live investigation view — uses the app's theme tokens (light by default, dark when the app is dark). */
 .ws-live { animation: ws-enter 0.55s ease-out; }
-@keyframes ws-enter { from { opacity: 0; transform: scale(1.015); } to { opacity: 1; transform: none; } }
-.ws-marker--live .ws-pin { border: 0; box-shadow: 0 0 0 2px rgb(255 255 255 / 0.92), 0 0 16px var(--pin); }
-.ws-label { position: absolute; left: 25px; top: -2px; display: flex; flex-direction: column; max-width: 200px; padding: 3px 8px; border-radius: 8px; background: rgb(9 13 21 / 0.84); border: 1px solid rgb(255 255 255 / 0.14); color: #fff; text-align: left; white-space: nowrap; pointer-events: none; box-shadow: 0 6px 18px rgb(0 0 0 / 0.4); backdrop-filter: blur(6px); }
+@keyframes ws-enter { from { opacity: 0; transform: scale(1.012); } to { opacity: 1; transform: none; } }
+.ws-marker--live .ws-pin { border: 0; box-shadow: 0 0 0 2px rgb(var(--surface)), 0 3px 10px rgb(0 0 0 / 0.25); }
+.ws-marker--live:hover, .ws-marker.is-selected, .ws-marker.is-tour, .ws-marker.is-new { z-index: 5; }
+.ws-marker--live:hover { z-index: 6; }
+.ws-label { position: absolute; left: 25px; top: -3px; display: flex; flex-direction: column; max-width: 230px; padding: 4px 9px; border-radius: 10px; background: rgb(var(--surface) / 0.97); border: 1px solid rgb(var(--border)); color: rgb(var(--fg)); text-align: left; white-space: nowrap; pointer-events: none; box-shadow: 0 6px 20px rgb(0 0 0 / 0.1); }
 .ws-label b { font-size: 12px; font-weight: 600; line-height: 16px; overflow: hidden; text-overflow: ellipsis; }
-.ws-label i { font-size: 10.5px; font-style: normal; line-height: 14px; color: rgb(255 255 255 / 0.66); overflow: hidden; text-overflow: ellipsis; }
-.ws-far .ws-label { display: none; }
-.ws-far .ws-marker.is-new .ws-label, .ws-far .ws-marker.is-selected .ws-label, .ws-far .ws-marker.is-tour .ws-label { display: flex; }
+.ws-label i { font-size: 10.5px; font-style: normal; line-height: 14px; color: rgb(var(--muted)); overflow: hidden; text-overflow: ellipsis; }
+.ws-label em { display: none; font-size: 10.5px; font-style: normal; line-height: 15px; color: rgb(var(--muted)); overflow: hidden; text-overflow: ellipsis; }
+.ws-marker--live:hover .ws-label em, .ws-marker.is-selected .ws-label em { display: block; }
+.ws-marker--live:hover .ws-label, .ws-marker.is-selected .ws-label, .ws-marker.is-tour .ws-label { border-color: var(--pin); box-shadow: 0 8px 26px rgb(0 0 0 / 0.16); }
+.ws-far .ws-label, .ws-dense .ws-label { display: none; }
+.ws-far .ws-marker.show-label .ws-label, .ws-far .ws-marker.is-selected .ws-label, .ws-far .ws-marker.is-tour .ws-label, .ws-far .ws-marker--live:hover .ws-label,
+.ws-dense .ws-marker.show-label .ws-label, .ws-dense .ws-marker.is-selected .ws-label, .ws-dense .ws-marker.is-tour .ws-label, .ws-dense .ws-marker--live:hover .ws-label { display: flex; }
 .ws-marker.is-new .ws-label { animation: ws-label-in 0.5s ease-out; border-color: var(--pin); }
-.ws-marker.is-selected .ws-label, .ws-marker.is-tour .ws-label { border-color: var(--pin); background: rgb(9 13 21 / 0.96); }
-.ws-marker.is-selected, .ws-marker.is-tour, .ws-marker.is-new { z-index: 5; }
 @keyframes ws-label-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
-.ws-radar { position: relative; width: min(62vmin, 540px); aspect-ratio: 1; border-radius: 9999px; background: conic-gradient(from 0deg, rgb(57 135 229 / 0) 0deg, rgb(57 135 229 / 0) 250deg, rgb(57 135 229 / 0.32) 360deg); border: 1px solid rgb(57 135 229 / 0.22); animation: ws-spin 3.4s linear infinite; }
-.ws-radar-ring { position: absolute; inset: 0; border-radius: 9999px; border: 1px solid rgb(57 135 229 / 0.4); animation: ws-ring 2.8s ease-out infinite; }
+.ws-hub { position: relative; width: 22px; height: 22px; pointer-events: none; }
+.ws-hub span { position: absolute; inset: 0; border-radius: 9999px; }
+.ws-hub .core { inset: 5px; background: rgb(var(--accent)); box-shadow: 0 0 0 3px rgb(var(--surface)), 0 2px 10px rgb(var(--accent) / 0.5); }
+.ws-hub .ring { border: 2px solid rgb(var(--accent) / 0.55); animation: ws-ring-big 2.4s ease-out infinite; }
+.ws-hub .ring.r2 { animation-delay: 1.2s; }
+.ws-hub b { position: absolute; left: 50%; top: 26px; transform: translateX(-50%); white-space: nowrap; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: rgb(var(--accent)); background: rgb(var(--surface) / 0.92); padding: 1px 7px; border-radius: 9999px; border: 1px solid rgb(var(--accent) / 0.25); }
+@keyframes ws-ring-big { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(3.4); opacity: 0; } }
+.ws-radar { position: relative; width: min(62vmin, 540px); aspect-ratio: 1; border-radius: 9999px; background: conic-gradient(from 0deg, rgb(var(--accent) / 0) 0deg, rgb(var(--accent) / 0) 250deg, rgb(var(--accent) / 0.22) 360deg); border: 1px solid rgb(var(--accent) / 0.18); animation: ws-spin 3.4s linear infinite; }
+.ws-radar-ring { position: absolute; inset: 0; border-radius: 9999px; border: 1px solid rgb(var(--accent) / 0.35); animation: ws-ring 2.8s ease-out infinite; }
 @keyframes ws-spin { to { transform: rotate(360deg); } }
 @keyframes ws-ring { from { transform: scale(0.15); opacity: 0.9; } to { transform: scale(1); opacity: 0; } }
 .ws-feed-new { animation: ws-feed-in 0.45s ease-out; }
 @keyframes ws-feed-in { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
 .ws-pop { animation: ws-pop 0.5s ease-out; }
-@keyframes ws-pop { 0% { transform: scale(1); } 40% { transform: scale(1.2); } 100% { transform: scale(1); } }
+@keyframes ws-pop { 0% { transform: scale(1); } 40% { transform: scale(1.2); color: rgb(var(--accent)); } 100% { transform: scale(1); } }
 .ws-slide-up { animation: ws-slide-up 0.45s ease-out; }
 @keyframes ws-slide-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .ws-live, .ws-radar, .ws-radar-ring, .ws-feed-new, .ws-pop, .ws-slide-up, .ws-marker.is-new .ws-label { animation: none; } }
+.ws-in-left { animation: ws-in-left 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both; }
+.ws-in-right { animation: ws-in-right 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.25s both; }
+.ws-in-top { animation: ws-in-top 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes ws-in-left { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+@keyframes ws-in-right { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes ws-in-top { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+.ws-flash { animation: ws-flash 2.2s ease-out; }
+@keyframes ws-flash { 0%, 30% { background: rgb(var(--accent) / 0.12); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .ws-live, .ws-radar, .ws-radar-ring, .ws-feed-new, .ws-pop, .ws-slide-up, .ws-in-left, .ws-in-right, .ws-in-top, .ws-flash, .ws-hub .ring, .ws-marker.is-new .ws-label { animation: none; } }
