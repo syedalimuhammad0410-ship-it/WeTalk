@@ -4,6 +4,7 @@ import type { ClaudeConnection } from "@prisma/client";
 import { db } from "../../db";
 import { AppError } from "../errors";
 import { logActivity } from "../activity";
+import { env } from "../env";
 
 /**
  * A Claude connection is a secret link Claude uses to reach one workspace: added to Claude as a
@@ -11,7 +12,8 @@ import { logActivity } from "../activity";
  * hash of the token is stored; the link is shown once.
  */
 export const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
-export const appUrl = () => (process.env.APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+/** Public address of this app (APP_URL, or Render's automatic RENDER_EXTERNAL_URL). */
+export const appUrl = () => env.appUrl();
 export const connectorUrl = (token: string) => `${appUrl()}/api/mcp/${token}`;
 
 const recent = (d: Date | null, ms: number) => Boolean(d && Date.now() - d.getTime() < ms);

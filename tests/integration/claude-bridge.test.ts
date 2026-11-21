@@ -209,3 +209,20 @@ describe("Live investigation view data", () => {
     expect(search.events.map((e) => e.type)).toEqual(expect.arrayContaining(["TASK_CREATED", "BUSINESS_CREATED"]));
   });
 });
+
+describe("connection links", () => {
+  it("use the public address on Render even without APP_URL", async () => {
+    const { connectorUrl } = await import("@/lib/server/claude/connections");
+    const prev = { app: process.env.APP_URL, render: process.env.RENDER_EXTERNAL_URL };
+    delete process.env.APP_URL;
+    process.env.RENDER_EXTERNAL_URL = "https://webscout.example.onrender.com";
+    try {
+      expect(connectorUrl("wsc_abc")).toBe("https://webscout.example.onrender.com/api/mcp/wsc_abc");
+    } finally {
+      if (prev.app === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = prev.app;
+      if (prev.render === undefined) delete process.env.RENDER_EXTERNAL_URL;
+      else process.env.RENDER_EXTERNAL_URL = prev.render;
+    }
+  });
+});
