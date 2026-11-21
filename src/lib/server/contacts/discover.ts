@@ -19,7 +19,7 @@ import { analyzeHtml } from "../audit/analyze";
 
 const EMAIL_RE = /^[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 const IGNORED = /(example\.|sentry|wixpress|noreply|no-reply|donotreply|mailer-daemon|@sentry|\.png$|\.jpg$|\.gif$|\.webp$|u003e|domain\.com$|email\.com$|yourname|your-?email)/i;
-const NO_SOLICITATION = /(no|not accept|do not send|don't send|we do not (?:accept|want)|please do not send)\s+(?:any\s+)?(unsolicited|commercial|marketing|sales|promotional)|\bno solicit(?:ation|ations|ing|ors)\b|not (?:wish|want) to receive (?:any\s+)?(?:unsolicited|commercial|marketing)|solicitations? (?:are|is) not (?:accepted|welcome)/i;
+export const NO_SOLICITATION = /(no|not accept|do not send|don't send|we do not (?:accept|want)|please do not send)\s+(?:any\s+)?(unsolicited|commercial|marketing|sales|promotional)|\bno solicit(?:ation|ations|ing|ors)\b|not (?:wish|want) to receive (?:any\s+)?(?:unsolicited|commercial|marketing)|solicitations? (?:are|is) not (?:accepted|welcome)/i;
 
 export type RoleInfo = { role: string; relevant: boolean; named: boolean };
 
@@ -158,7 +158,7 @@ async function crawlForEmails(siteUrl: string): Promise<{ found: Found[]; notes:
 const ROLE_RANK = ["General business inquiries", "Sales", "Office administration", "Marketing", "Business management", "Business contact", "Named individual"];
 
 /** Re-evaluates one contact's eligibility and records the evidence when the decision changes. */
-async function evaluateContact(c: Contact, business: Business, ctx: { checksEnabled: boolean; noSolicitation?: boolean; snippet?: string | null }) {
+export async function evaluateContact(c: Contact, business: Business, ctx: { checksEnabled: boolean; noSolicitation?: boolean; snippet?: string | null }) {
   const email = c.email!.toLowerCase();
   const domain = email.split("@")[1]!;
   const syntaxOk = EMAIL_RE.test(email);

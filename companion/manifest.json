@@ -1,0 +1,43 @@
+{
+  "manifest_version": "0.2",
+  "name": "webscout-ai",
+  "display_name": "WebScout AI",
+  "version": "1.0.0",
+  "description": "Connect Claude to your WebScout AI workspace: pick up prospecting tasks and send researched businesses back to your CRM.",
+  "long_description": "WebScout AI's local companion for Claude Desktop. Claude gets your queued WebScout tasks, researches public business information (with web search or computer use), and returns sourced results: new leads, verified business emails, facts and email drafts for your approval. The extension only relays WebScout's own tools to your workspace — it has no shell or file access. Your connection link is stored in your operating system's secure storage.",
+  "author": { "name": "WebScout AI" },
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": { "WEBSCOUT_CONNECTION_LINK": "${user_config.connection_link}" }
+    }
+  },
+  "user_config": {
+    "connection_link": {
+      "type": "string",
+      "title": "WebScout connection link",
+      "description": "From WebScout → Claude → Connect Claude. It starts with https:// and contains /api/mcp/wsc_",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "tools": [
+    { "name": "get_status", "description": "Check the connection to your WebScout workspace" },
+    { "name": "get_next_task", "description": "Get the next prospecting task you queued in WebScout" },
+    { "name": "report_progress", "description": "Post progress to the task's live feed" },
+    { "name": "submit_businesses", "description": "Add researched businesses (with sources) to your CRM" },
+    { "name": "submit_contacts", "description": "Add published business emails (checked on the page by WebScout)" },
+    { "name": "submit_facts", "description": "Record sourced facts and labelled estimates about a business" },
+    { "name": "search_leads", "description": "Search your leads" },
+    { "name": "get_lead", "description": "Read one lead's full profile" },
+    { "name": "create_email_draft", "description": "Save an email draft for your approval (never sends)" },
+    { "name": "report_error", "description": "Report a problem with a task" },
+    { "name": "complete_task", "description": "Finish a task with a summary" }
+  ],
+  "keywords": ["crm", "prospecting", "leads", "web agency"],
+  "license": "UNLICENSED",
+  "compatibility": { "platforms": ["win32", "darwin", "linux"], "runtimes": { "node": ">=18.0.0" } }
+}

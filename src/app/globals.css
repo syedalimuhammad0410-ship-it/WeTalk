@@ -88,3 +88,15 @@ body {
 /* Data-viz series slots (validated: dataviz validate_palette.js, light + dark). */
 :root { --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --grid: #e7e5e4; }
 [data-theme="dark"] { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --grid: #2a2a30; }
+
+/* Live lead map pins (maplibre positions the outer element; the inner one animates). */
+.ws-marker { width: 26px; height: 34px; cursor: pointer; background: none; border: 0; padding: 0; }
+.ws-pin { position: absolute; left: 4px; top: 2px; width: 18px; height: 18px; border-radius: 9999px 9999px 9999px 0; transform: rotate(-45deg); background: var(--pin, var(--series-1)); border: 2px solid #fff; box-shadow: 0 2px 6px rgb(0 0 0 / 0.35); }
+.ws-pin::after { content: ""; position: absolute; inset: 4px; border-radius: 9999px; background: #fff; }
+.ws-pulse { position: absolute; left: 1px; bottom: -2px; width: 24px; height: 10px; border-radius: 9999px; background: var(--pin, var(--series-1)); opacity: 0; }
+.ws-marker.is-new .ws-pin { animation: ws-drop 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.3); }
+.ws-marker.is-new .ws-pulse { animation: ws-pulse 1.6s ease-out 3; }
+.ws-marker.is-selected .ws-pin { outline: 3px solid var(--pin, var(--series-1)); outline-offset: 2px; }
+@keyframes ws-drop { from { transform: translateY(-36px) rotate(-45deg); opacity: 0; } to { transform: translateY(0) rotate(-45deg); opacity: 1; } }
+@keyframes ws-pulse { 0% { opacity: 0.6; transform: scale(0.4); } 100% { opacity: 0; transform: scale(2.6); } }
+@media (prefers-reduced-motion: reduce) { .ws-marker.is-new .ws-pin, .ws-marker.is-new .ws-pulse { animation: none; } }

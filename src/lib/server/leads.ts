@@ -219,7 +219,7 @@ export async function upsertBusiness(workspaceId: string, input: BusinessInput, 
 }
 
 export const sourceLabel = (s: BusinessSource) =>
-  ({ GOOGLE_PLACES: "Google Places", MANUAL: "manual entry", CSV_IMPORT: "CSV import", DEMO: "demo data", OPENSTREETMAP: "OpenStreetMap" })[s];
+  ({ GOOGLE_PLACES: "Google Places", MANUAL: "manual entry", CSV_IMPORT: "CSV import", DEMO: "demo data", OPENSTREETMAP: "OpenStreetMap", CLAUDE_RESEARCH: "Claude research" })[s];
 
 // ───────────── Status changes ─────────────
 

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type LeadData = {
   business: any;
+  evidence: { id: string; field: string; value: string; kind: string; sourceUrl: string | null; sourceType: string | null; verified: boolean; createdBy: string; createdAt: string }[];
   audit: any | null;
   opportunity: any | null;
   draft: any | null;

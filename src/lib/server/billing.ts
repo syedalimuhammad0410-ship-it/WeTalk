@@ -7,7 +7,7 @@ import { logActivity } from "./activity";
 import { getPlan, priceCents, type Cycle, type PlanId } from "../plans";
 
 /** Leads that count towards the monthly allowance: businesses the platform discovered (not manual adds or imports). */
-const COUNTED_SOURCES = ["GOOGLE_PLACES", "OPENSTREETMAP"] as const;
+const COUNTED_SOURCES = ["GOOGLE_PLACES", "OPENSTREETMAP", "CLAUDE_RESEARCH"] as const;
 
 export const monthStart = (d = new Date()) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 export const nextMonthStart = (d = new Date()) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));

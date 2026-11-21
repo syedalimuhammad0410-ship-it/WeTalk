@@ -68,6 +68,7 @@ enum BusinessSource {
   CSV_IMPORT
   DEMO
   OPENSTREETMAP
+  CLAUDE_RESEARCH
 }
 
 enum JobType {
@@ -279,6 +280,11 @@ model Workspace {
   outreachApprovals OutreachApproval[]
   subscription      Subscription?
   billingPayments   BillingPayment[]
+  claudeConnections ClaudeConnection[]
+  claudeTasks       ClaudeTask[]
+  claudeTaskEvents  ClaudeTaskEvent[]
+  claudeSubmissions ClaudeSubmission[]
+  businessEvidence  BusinessEvidence[]
 }
 
 /// The workspace's plan. Lead allowance is per calendar month (UTC).
@@ -521,6 +527,8 @@ model Business {
   reviewCount            Int?
   hours                  String[]       @default([])
   googleMapsUrl          String?
+  /// Main photo/logo: the website's share image (og:image) or a sourced photo
+  imageUrl               String?
   operationalStatus      String?
   source                 BusinessSource @default(MANUAL)
   sourceId               String?
@@ -560,6 +568,7 @@ model Business {
   campaignLeads CampaignLead[]
   activityLogs  ActivityLog[]
   statusHistory LeadStatusChange[]
+  evidence      BusinessEvidence[]
 
   @@unique([workspaceId, source, sourceId])
   @@index([workspaceId, status])
@@ -1253,5 +1262,114 @@ model AiUsage {
   error        String?
   createdAt    DateTime  @default(now())
 
+  @@index([workspaceId, createdAt])
+}
+
+// ───────────── Claude bridge (Claude Desktop / claude.ai ↔ WebScout over MCP) ─────────────
+
+/// A link Claude uses to reach this workspace: a custom connector URL or the desktop extension.
+/// Only a SHA-256 hash of the secret token is stored.
+model ClaudeConnection {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdById     String?
+  name            String
+  tokenHash       String    @unique
+  tokenHint       String
+  /// Last MCP request from Claude (any client)
+  lastSeenAt      DateTime?
+  lastClient      String?
+  /// Desktop extension (local companion) heartbeat
+  companionSeenAt DateTime?
+  deviceName      String?
+  platform        String?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([workspaceId])
+}
+
+/// Work the user queues for Claude. Status: QUEUED | RUNNING | PAUSED | COMPLETED | FAILED | CANCELLED
+model ClaudeTask {
+  id              String            @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdById     String?
+  /// FIND_LEADS | RESEARCH_LEADS
+  type            String
+  title           String
+  parameters      Json              @default("{}")
+  status          String            @default("QUEUED")
+  progress        Int               @default(0)
+  progressMessage String?
+  connectionId    String?
+  claimedAt       DateTime?
+  finishedAt      DateTime?
+  summary         String?
+  error           String?
+  /// { submitted, created, duplicates, rejected, contactsVerified, contactsRejected, facts, drafts }
+  stats           Json              @default("{}")
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  events          ClaudeTaskEvent[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+}
+
+/// Every state change and result, shown as the live activity feed.
+model ClaudeTaskEvent {
+  id          String      @id @default(cuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId      String?
+  task        ClaudeTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  type        String
+  message     String
+  businessId  String?
+  data        Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([taskId, createdAt])
+}
+
+/// Idempotency: a retried submission with the same key returns the first response.
+model ClaudeSubmission {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId         String?
+  idempotencyKey String
+  tool           String
+  response       Json
+  createdAt      DateTime  @default(now())
+
+  @@unique([workspaceId, idempotencyKey])
+}
+
+/// A fact about a business with where it came from. FACT = stated by a source; ESTIMATE = AI judgement.
+model BusinessEvidence {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  businessId  String
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  taskId      String?
+  kind        String    @default("FACT")
+  field       String
+  value       String
+  sourceUrl   String?
+  /// OFFICIAL_WEBSITE | MAPS | DIRECTORY | SOCIAL | NEWS | GOVERNMENT | OTHER
+  sourceType  String?
+  confidence  Int?
+  /// The server found the value on the source page
+  verified    Boolean   @default(false)
+  /// CLAUDE | AUDIT | USER
+  createdBy   String    @default("CLAUDE")
+  createdAt   DateTime  @default(now())
+
+  @@index([businessId, field])
   @@index([workspaceId, createdAt])
 }

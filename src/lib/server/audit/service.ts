@@ -141,6 +141,15 @@ async function performAudit(business: Business, auditId: string): Promise<AuditO
     return blockedOutcome(business, auditId, homeRes.finalUrl, `The website returned ${ctype} instead of a web page.`, typeGuess, "MANUAL_REVIEW");
   }
   const home = analyzeHtml(homeRes.body, { url: homeRes.finalUrl, status: homeRes.status, ms: homeRes.ms, bytes: homeRes.bytes, headers: homeRes.headers });
+  // The site's own share image becomes the lead's photo (never overwrites one already chosen).
+  if (!business.imageUrl && home.og?.image) {
+    try {
+      const img = new URL(home.og.image, homeRes.finalUrl);
+      if (/^https?:$/.test(img.protocol)) await db.business.update({ where: { id: business.id }, data: { imageUrl: img.href.slice(0, 2000) } });
+    } catch {
+      /* not a usable URL */
+    }
+  }
   if (home.challengeSignals.length || (home.hasPasswordField && home.wordCount < 150)) {
     return blockedOutcome(business, auditId, homeRes.finalUrl, `${home.challengeSignals[0] ?? "Login wall"} detected. Automated checks were stopped (no bypass attempted).`, typeGuess);
   }

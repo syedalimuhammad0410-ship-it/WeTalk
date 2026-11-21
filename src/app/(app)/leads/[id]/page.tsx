@@ -25,7 +25,7 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
     include: { contacts: true, tags: { include: { tag: true } }, assignedTo: { select: { id: true, name: true } }, campaignLeads: { include: { campaign: { select: { id: true, name: true } } } } },
   });
   if (!business) notFound();
-  const [audit, opportunity, prompt, draft, messages, conversations, followUps, notes, activity, statusHistory, members, templates, campaigns, allTags, emailAccount] = await Promise.all([
+  const [audit, opportunity, prompt, draft, messages, conversations, followUps, notes, activity, statusHistory, members, templates, campaigns, allTags, emailAccount, evidence] = await Promise.all([
     db.websiteAudit.findFirst({ where: { businessId: id }, orderBy: { createdAt: "desc" }, include: { findings: true } }),
     db.opportunity.findFirst({ where: { businessId: id }, orderBy: { createdAt: "desc" } }),
     db.generatedPrompt.findFirst({ where: { businessId: id }, orderBy: { updatedAt: "desc" }, include: { versions: { orderBy: { version: "desc" }, take: 1, select: { version: true, qualityScore: true, wordCount: true, createdAt: true, generator: true, content: true } } } }),
@@ -41,6 +41,7 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
     db.campaign.findMany({ where: { workspaceId: ws }, select: { id: true, name: true } }),
     db.tag.findMany({ where: { workspaceId: ws }, select: { name: true } }),
     db.emailAccount.findFirst({ where: { workspaceId: ws, isDefault: true }, select: { provider: true, emailAddress: true } }),
+    db.businessEvidence.findMany({ where: { businessId: id }, orderBy: { createdAt: "desc" }, take: 80, select: { id: true, field: true, value: true, kind: true, sourceUrl: true, sourceType: true, verified: true, createdBy: true, createdAt: true } }),
   ]);
   const compliance = await db.complianceSettings.findUnique({ where: { workspaceId: ws }, select: { dataRetentionDays: true } });
   const staleDays = business.source === "GOOGLE_PLACES" && business.sourceFetchedAt && compliance?.dataRetentionDays ? Math.floor((Date.now() - business.sourceFetchedAt.getTime()) / 86400_000) : 0;
@@ -56,7 +57,7 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
     }
   }
   const data = {
-    business, audit, opportunity, draft, messages, conversations, followUps, notes, activity, statusHistory,
+    business, evidence, audit, opportunity, draft, messages, conversations, followUps, notes, activity, statusHistory,
     prompt: prompt ? { id: prompt.id, title: prompt.title, currentVersion: prompt.currentVersion, qualityScore: prompt.qualityScore, updatedAt: prompt.updatedAt, latest: prompt.versions[0] ? { ...prompt.versions[0], content: prompt.versions[0].content.slice(0, 1800) } : null } : null,
     members: members.map((m) => m.user), templates, campaigns, allTags: allTags.map((t) => t.name),
     playbook: { id: playbook.id, label: playbook.label, primaryConversion: playbook.primaryConversion, primaryGoal: playbook.primaryGoal, features: playbook.features.map((f) => ({ ...f, name: FEATURES[f.key]!.name })) },

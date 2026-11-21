@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Copy, FileText, Phone, Sparkles } from "lucide-react";
-import { Alert, Card, CardHeader } from "../ui/misc";
+import { Copy, FileText, Mail, Phone, Send, Sparkles } from "lucide-react";
+import { Alert, Badge, Card, CardHeader } from "../ui/misc";
+import { ConfirmDialog } from "../ui/dialog";
 import { Button } from "../ui/button";
-import { Textarea } from "../ui/form";
+import { Field, Input, Textarea } from "../ui/form";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
 import type { LeadData, LeadPerms } from "./types";
@@ -13,6 +14,8 @@ type Script = {
   objections: { q: string; a: string }[]; close: string; askForEmail: boolean;
 };
 type Quote = { text: string; issues: string[]; packageName: string; price: string };
+type QuoteEmail = { draftId: string; to: string | null; subject: string; body: string; issues: string[]; sendBlocker: string | null; options: { level: string; name: string; price: string }[] };
+type SendSummary = { recipient: string; subject: string; from: string; sandbox: boolean };
 
 /** Phone pitch built from the audit, and a quote built from the agency's own pricing. */
 export function PitchTab({ data, perms }: { data: LeadData; perms: LeadPerms }) {
@@ -23,6 +26,9 @@ export function PitchTab({ data, perms }: { data: LeadData; perms: LeadPerms }) 
   const [requirements, setRequirements] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mail, setMail] = useState<QuoteEmail | null>(null);
+  const [mailBusy, setMailBusy] = useState<string | null>(null);
+  const [confirmSend, setConfirmSend] = useState<SendSummary | null>(null);
 
   useEffect(() => {
     if (!perms.compose) return;
@@ -37,6 +43,45 @@ export function PitchTab({ data, perms }: { data: LeadData; perms: LeadPerms }) 
       toast.error("Quote not built", (e as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+  async function writeQuoteEmail() {
+    setMailBusy("write");
+    try {
+      setMail(await apiFetch<QuoteEmail>(`/api/leads/${b.id}/quote-email`, { body: { requirements } }));
+    } catch (e) {
+      toast.error("Quote email not written", (e as Error).message);
+    } finally {
+      setMailBusy(null);
+    }
+  }
+  async function saveMail() {
+    if (!mail) return;
+    await apiFetch(`/api/emails/drafts/${mail.draftId}`, { method: "PATCH", body: { subject: mail.subject, body: mail.body, to: mail.to ?? "" } });
+  }
+  async function prepareSend() {
+    setMailBusy("send");
+    try {
+      await saveMail();
+      const r = await apiFetch<{ summary: SendSummary }>("/api/emails/send", { body: { draftId: mail!.draftId, dryRun: true } });
+      setConfirmSend(r.summary);
+    } catch (e) {
+      toast.error("Can't send yet", (e as Error).message);
+    } finally {
+      setMailBusy(null);
+    }
+  }
+  async function send() {
+    setMailBusy("confirm");
+    try {
+      const r = await apiFetch<{ sent?: boolean; sandbox?: boolean }>("/api/emails/send", { body: { draftId: mail!.draftId, confirmed: true } });
+      toast.success(r.sandbox ? "Sent (sandbox — no real email left)" : "Quote sent from your email", `To ${confirmSend?.recipient}`);
+      setConfirmSend(null);
+      setMail(null);
+    } catch (e) {
+      toast.error("Not sent", (e as Error).message);
+    } finally {
+      setMailBusy(null);
     }
   }
   const copy = (text: string, what: string) => { navigator.clipboard.writeText(text); toast.success(`${what} copied`); };
@@ -80,6 +125,35 @@ export function PitchTab({ data, perms }: { data: LeadData; perms: LeadPerms }) 
           </>}
         </div>
       </Card>
+      <Card className="lg:col-span-2">
+        <CardHeader title={<span className="flex items-center gap-2"><Mail className="h-4 w-4 text-accent" /> Email a detailed quote</span>} description="Basic, Professional and Premium options from your own price list, written for this business. You review it — nothing is sent until you confirm." />
+        <div className="space-y-4 px-5 py-4">
+          {!mail ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={writeQuoteEmail} loading={mailBusy === "write"} loadingText="Writing the quote email…"><Sparkles className="h-4 w-4" /> Write detailed quote email</Button>
+              <span className="text-xs text-muted">Uses the requirements above (optional) and the website audit.</span>
+            </div>
+          ) : (
+            <>
+              {mail.options.length > 0 && <div className="flex flex-wrap gap-2">{mail.options.map((o) => <Badge key={o.level + o.name} tone={o.level === "Professional" ? "violet" : "slate"}>{o.level}: {o.name} — {o.price}</Badge>)}</div>}
+              {mail.issues.length > 0 && <Alert tone="warning" title="Check these prices before sending">{mail.issues.join(" ")}</Alert>}
+              {mail.sendBlocker && <Alert tone="warning" title="Can't be sent yet">{mail.sendBlocker}</Alert>}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="To" htmlFor="qe-to"><Input id="qe-to" type="email" value={mail.to ?? ""} onChange={(e) => setMail({ ...mail, to: e.target.value })} placeholder="business@example.com" /></Field>
+                <Field label="Subject" htmlFor="qe-subject"><Input id="qe-subject" value={mail.subject} onChange={(e) => setMail({ ...mail, subject: e.target.value })} /></Field>
+              </div>
+              <Field label="Message" htmlFor="qe-body" hint="Your signature, mailing address and an unsubscribe link are added automatically when sent."><Textarea id="qe-body" rows={18} value={mail.body} onChange={(e) => setMail({ ...mail, body: e.target.value })} className="font-mono text-[13px]" /></Field>
+              <div className="flex flex-wrap gap-2">
+                {perms.send && <Button onClick={prepareSend} loading={mailBusy === "send"} disabled={!mail.to}><Send className="h-4 w-4" /> Send from my email…</Button>}
+                <Button variant="outline" onClick={async () => { setMailBusy("save"); try { await saveMail(); toast.success("Draft saved", "Find it in Outreach or the Emails tab."); } catch (e) { toast.error("Not saved", (e as Error).message); } finally { setMailBusy(null); } }} loading={mailBusy === "save"}>Save draft</Button>
+                <Button variant="ghost" onClick={writeQuoteEmail} loading={mailBusy === "write"}>Rewrite</Button>
+              </div>
+            </>
+          )}
+        </div>
+      </Card>
+      <ConfirmDialog open={Boolean(confirmSend)} onClose={() => setConfirmSend(null)} tone="primary" title="Send this quote now?" confirmLabel="Send email" loading={mailBusy === "confirm"} onConfirm={send}
+        description={confirmSend ? <>From <b>{confirmSend.from}</b> to <b>{confirmSend.recipient}</b>: “{confirmSend.subject}”.{confirmSend.sandbox ? " (Sandbox account — no real email is sent.)" : ""}</> : null} />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { SCORE_CATEGORIES, SCORE_CATEGORY_LABEL, WEBSITE_CLASS_META, LEAD_STATUS_META, type LeadStatusT } from "@/lib/constants";
 import type { LeadData, LeadPerms } from "./types";
 import { RelTime, DateTimeText } from "@/components/ui/time";
+import { LeadProfileCard } from "./lead-profile";
 
 function Fact({ label, value, source }: { label: string; value?: React.ReactNode; source?: string | null }) {
   const empty = value === null || value === undefined || value === "";
@@ -23,7 +24,7 @@ function Fact({ label, value, source }: { label: string; value?: React.ReactNode
 
 export function OverviewTab({ data, perms, onTab, onAudit, onPrompt, busy }: { data: LeadData; perms: LeadPerms; onTab: (t: any) => void; onAudit: () => void; onPrompt: () => void; busy: string | null }) {
   const b = data.business;
-  const src = b.source === "GOOGLE_PLACES" ? "Google Places" : b.source === "MANUAL" ? "Manual entry" : b.source === "CSV_IMPORT" ? "CSV import" : "Demo data";
+  const src = ({ GOOGLE_PLACES: "Google Places", MANUAL: "Manual entry", CSV_IMPORT: "CSV import", OPENSTREETMAP: "OpenStreetMap", CLAUDE_RESEARCH: "Claude research", DEMO: "Demo data" } as Record<string, string>)[b.source] ?? b.source;
   const next = !data.audit
     ? { text: "Analyze the website to find opportunities.", cta: perms.audit ? <Button size="sm" onClick={onAudit} loading={busy === "audit"} loadingText="Analyzing…"><Gauge className="h-4 w-4" /> Analyze website</Button> : null }
     : !data.prompt
@@ -40,6 +41,7 @@ export function OverviewTab({ data, perms, onTab, onAudit, onPrompt, busy }: { d
         {!b.doNotContact && (
           <Alert tone="info" title="Next step" action={next.cta}>{next.text}</Alert>
         )}
+        <LeadProfileCard data={data} />
         <Card>
           <CardHeader title="Business" description="Only information from the listed sources. Missing values are never invented." />
           <dl className="divide-y divide-border px-5">

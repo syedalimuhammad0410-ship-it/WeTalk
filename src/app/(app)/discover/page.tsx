@@ -5,6 +5,7 @@ import { zoneSummary } from "@/lib/server/discovery/run";
 import { leadAllowance } from "@/lib/server/billing";
 import { PageHeader } from "@/components/ui/misc";
 import { BusinessFinder } from "@/components/discover/business-finder";
+import { RunMap } from "@/components/discover/run-map";
 
 export const metadata = { title: "Find Businesses" };
 
@@ -25,6 +26,7 @@ export default async function DiscoverPage({ searchParams }: { searchParams: Pro
     <div>
       <PageHeader title="Find Businesses" description="Search a radius of up to 500 km or a whole city, region, province or country. Only official APIs and open data are used; emails are never guessed." />
       <BusinessFinder googleConfigured={Boolean(key)} googleError={cred?.status === "ERROR" ? (cred.lastError ?? "Google refused the request.") : null} canRun={ctx.can("discovery.run")} campaigns={campaigns} runs={JSON.parse(JSON.stringify(runsWithZones))} defaultCampaignId={sp.campaignId ?? ""} allowance={allowance} />
+      {runs[0] && <RunMap key={runs[0].id} runId={runs[0].id} label={`Latest search (${runs[0].queries.slice(0, 3).join(", ")} in ${runs[0].locations.slice(0, 2).join("; ")})`} live={["QUEUED", "RUNNING"].includes(runs[0].status)} />}
     </div>
   );
 }

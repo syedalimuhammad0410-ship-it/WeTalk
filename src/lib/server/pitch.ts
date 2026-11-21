@@ -103,3 +103,77 @@ export async function generateQuote(workspaceId: string, businessId: string, req
   const issues = scanCommitments(text, company);
   return { text, issues, packageName: q.package_name, price: q.price };
 }
+
+const ProposalSchema = z.object({
+  subject: z.string().describe("Email subject, specific to this business, under 70 characters"),
+  opening: z.string().describe("2–3 sentences: a friendly hello and 1–2 VERIFIED observations about their website or business"),
+  needs: z.array(z.string()).describe("What they need, from the verified findings and the client's stated needs (max 6 short lines)"),
+  options: z
+    .array(
+      z.object({
+        level: z.enum(["Basic", "Professional", "Premium"]),
+        package_name: z.string().describe("Package name exactly as in PRICING"),
+        price: z.string().describe("Exact price as written in PRICING"),
+        best_for: z.string().describe("One short line"),
+        includes: z.array(z.string()).describe("What they get, tied to their needs (max 7 short lines)"),
+        timeline: z.string().describe("Timeline from PRICING if stated; otherwise a realistic estimate such as '2–3 weeks (estimate)'"),
+      }),
+    )
+    .describe("1 to 3 options from PRICING, cheapest first; use only packages that exist in PRICING"),
+  recommended: z.string().describe("Which option you recommend for them and why, one sentence"),
+  add_ons: z.array(z.string()).describe("Optional extras from PRICING with exact prices (may be empty)"),
+  care_plan: z.string().describe("Monthly maintenance/care plan from PRICING with its exact price, or empty string"),
+  payment_terms: z.string().describe("Payment schedule/terms from PRICING, or empty string"),
+  assumptions: z.array(z.string()).describe("Up to 4 assumptions the quote depends on (content supplied by client, etc.)"),
+  next_step: z.string().describe("One clear, low-pressure next step, e.g. a 15-minute call"),
+});
+
+/**
+ * A detailed, sendable quote email: Basic / Professional / Premium options from the agency's own
+ * price list, built on verified audit findings. Saved as a draft — sending needs the user's approval.
+ */
+export async function generateQuoteEmail(workspaceId: string, businessId: string, requirements: string, userId: string | null) {
+  const { business: b, audit, missing } = await leadWithAudit(workspaceId, businessId);
+  if (b.doNotContact) throw new AppError("FORBIDDEN", `${b.name} is marked Do Not Contact.`);
+  const { company } = await getSettings(workspaceId);
+  if (!company.pricingEnabled || !company.pricingDetails.trim()) throw new AppError("NOT_CONFIGURED", "Add your prices in Settings → Company profile → Pricing first — quotes only ever use your own prices.");
+  const ai = await getAi(workspaceId);
+  if (!ai) throw new AppError("NOT_CONFIGURED", "Connect Google Gemini (or Anthropic) in Settings → AI to write quote emails.");
+  const pb = getPlaybook(b.businessType);
+  const observations = outreachObservations(b, audit).slice(0, 4);
+  let q: z.infer<typeof ProposalSchema>;
+  try {
+    q = await ai.json({
+      feature: "quote_email",
+      system: `You write a detailed but friendly quote email from a small web agency to a local business. Offer up to three options (Basic, Professional, Premium) using ONLY packages, add-ons, care plans, prices, timelines and terms that appear in PRICING, copied exactly. If PRICING has fewer than three packages, offer only those. Never invent prices, discounts, guarantees, deadlines or results. Mention only observations listed as verified. Plain, warm, specific language; no hype.`,
+      prompt: `PRICING (the only allowed figures):\n${company.pricingDetails.trim()}\n\nAGENCY: ${company.companyName || "our studio"}; services: ${company.services.join(", ") || "(not listed)"}\n\nBUSINESS\nName: ${b.name}\nType: ${pb.label}${b.category ? ` (${b.category})` : ""}\nCity: ${b.city ?? "unknown"}\nMain goal of their site: ${pb.primaryConversion}\nCurrent website: ${b.website ? `${b.website} (${(b.websiteClass ?? b.websiteStatus).replace(/_/g, " ").toLowerCase()})` : "none"}\nVerified findings:\n${observations.map((o) => `- ${o.observation}`).join("\n") || "- (no audit yet)"}\nRecommended features they're missing: ${missing.map((f) => `${f.name} (${f.priority})`).join(", ") || "(none recorded)"}\n\nWHAT THE CLIENT / USER SAID THEY NEED (may be empty):\n${requirements.trim() || "(nothing yet — base it on the findings)"}`,
+      schema: ProposalSchema,
+      maxTokens: 3000,
+    });
+  } catch (e) {
+    throw new AppError("UPSTREAM_ERROR", `Couldn't write the quote: ${describeError(e)}`);
+  }
+  const account = await db.emailAccount.findFirst({ where: { workspaceId, isDefault: true }, select: { signature: true } });
+  const options = q.options.slice(0, 3);
+  const body = [
+    `Hi ${b.name} team,`,
+    "",
+    q.opening.trim(),
+    ...(q.needs.length ? ["", "What we'd focus on:", ...q.needs.slice(0, 6).map((n) => `• ${n}`)] : []),
+    "",
+    options.length > 1 ? "Your options:" : "Our proposal:",
+    ...options.flatMap((o, i) => ["", `${options.length > 1 ? `${i + 1}) ` : ""}${o.level} — ${o.package_name}: ${o.price}`, `   Best for: ${o.best_for}`, ...o.includes.slice(0, 7).map((x) => `   • ${x}`), `   Timeline: ${o.timeline}`]),
+    ...(q.recommended.trim() ? ["", `Our recommendation: ${q.recommended.trim()}`] : []),
+    ...(q.add_ons.length ? ["", "Optional add-ons:", ...q.add_ons.map((a) => `• ${a}`)] : []),
+    ...(q.care_plan.trim() ? ["", `Ongoing care: ${q.care_plan.trim()}`] : []),
+    ...(q.payment_terms.trim() ? ["", `Payment: ${q.payment_terms.trim()}`] : []),
+    ...(q.assumptions.length ? ["", "This quote assumes:", ...q.assumptions.slice(0, 4).map((a) => `• ${a}`)] : []),
+    "",
+    q.next_step.trim(),
+    ...(account?.signature.trim() ? [] : ["", "Best regards,", ...[company.senderName, company.companyName].filter(Boolean)]),
+  ].join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const issues = scanCommitments(`${q.subject}\n${body}`, company);
+  const { saveOutreachDraft } = await import("./email/drafts");
+  const saved = await saveOutreachDraft({ workspaceId, businessId, subject: q.subject, body, notes: ["Detailed quote — check prices and details before sending.", ...issues], source: "quote email", userId });
+  return { draftId: saved.draft.id, to: saved.to || null, subject: saved.draft.subject, body: saved.draft.bodyText, issues, sendBlocker: saved.blocker, options: options.map((o) => ({ level: o.level, name: o.package_name, price: o.price })) };
+}

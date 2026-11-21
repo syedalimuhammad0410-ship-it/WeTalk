@@ -367,5 +367,8 @@ export async function pauseAllAutomation(workspaceId: string, userId: string, pa
       await enqueueDiscoveryRun(r);
     }
   }
+  // Claude tasks stop too: Claude is refused further work until automation resumes.
+  const { holdTasksForGlobalPause } = await import("../claude/tasks");
+  await holdTasksForGlobalPause(workspaceId, paused);
   await logActivity({ workspaceId, userId, action: paused ? "automation.paused_all" : "automation.resumed_all", summary: paused ? "All automation paused" : "All automation resumed" });
 }

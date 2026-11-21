@@ -250,6 +250,18 @@ export const TOOLS = [
     },
   }),
   tool({
+    name: "prepare_quote_email",
+    description: "Write (but do NOT send) a detailed quote email for one lead: Basic / Professional / Premium options from the agency's own price list, what each includes, timeline, payment terms and next step. Saved as the lead's draft. Show the user the preview, then use send_email with the draftId (needs their confirmation) to send it from their Gmail.",
+    args: z.object({ leadId: z.string(), requirements: z.string().max(3000).optional().describe("What the user or client said they need, if anything") }),
+    risk: "write",
+    permission: "emails.compose",
+    run: async (a, ctx) => {
+      const { generateQuoteEmail } = await import("../pitch");
+      const r = await generateQuoteEmail(ctx.workspace.id, a.leadId, a.requirements ?? "", ctx.user.id);
+      return { draftId: r.draftId, to: r.to, subject: r.subject, body: trim(r.body, 3000), options: r.options, priceWarnings: r.issues, cannotSendYet: r.sendBlocker, next: "Ask the user to confirm, then call send_email with this draftId.", link: `${leadLink(a.leadId)}?tab=emails` };
+    },
+  }),
+  tool({
     name: "find_businesses",
     description: "Search Google Places for new businesses and add them as leads (background job; audits run automatically). Args: location (e.g. 'Mississauga, ON'), category or searchTerms (e.g. 'dentist'), limit (1-100, default 20), website ('any'|'has'|'none').",
     args: z.object({ location: z.string().min(2).max(200), category: z.string().max(100).optional(), searchTerms: z.string().max(300).optional(), limit: z.coerce.number().int().min(1).max(100).default(20), website: z.enum(["any", "has", "none"]).default("any") }),
