@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Compass, Gauge, FileCode2, Inbox, CalendarClock, Megaphone, BarChart3, LayoutTemplate, Settings, Rocket, Send, Bot } from "lucide-react";
+import { LayoutDashboard, Users, Compass, Gauge, FileCode2, Inbox, CalendarClock, Megaphone, BarChart3, LayoutTemplate, Settings, Rocket, Send, Bot, Mails } from "lucide-react";
 
 export const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -9,6 +9,7 @@ export const NAV = [
   { href: "/audits", label: "Website Audits", icon: Gauge },
   { href: "/prompts", label: "Prompts", icon: FileCode2 },
   { href: "/outreach", label: "Outreach", icon: Send },
+  { href: "/emails", label: "Emails", icon: Mails },
   { href: "/inbox", label: "Inbox", icon: Inbox, badge: "inbox" as const },
   { href: "/follow-ups", label: "Follow-Ups", icon: CalendarClock, badge: "followups" as const },
   { href: "/campaigns", label: "Campaigns", icon: Megaphone },

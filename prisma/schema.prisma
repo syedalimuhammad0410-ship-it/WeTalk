@@ -83,6 +83,7 @@ enum JobType {
   DISCOVERY_RUN
   AUTOPROSPECT
   CONTACT_DISCOVERY
+  EMAIL_RUN
 }
 
 enum JobStatus {
@@ -282,6 +283,7 @@ model Workspace {
   billingPayments   BillingPayment[]
   claudeConnections ClaudeConnection[]
   claudeTasks       ClaudeTask[]
+  emailRuns         EmailRun[]
   claudeTaskEvents  ClaudeTaskEvent[]
   claudeSubmissions ClaudeSubmission[]
   businessEvidence  BusinessEvidence[]
@@ -569,6 +571,7 @@ model Business {
   activityLogs  ActivityLog[]
   statusHistory LeadStatusChange[]
   evidence      BusinessEvidence[]
+  emailRunItems EmailRunItem[]
 
   @@unique([workspaceId, source, sourceId])
   @@index([workspaceId, status])
@@ -1291,6 +1294,62 @@ model ClaudeConnection {
 }
 
 /// Work the user queues for Claude. Status: QUEUED | RUNNING | PAUSED | COMPLETED | FAILED | CANCELLED
+// ───────────────────────────── Email runs (bulk outreach, watched live) ─────────────────────────────
+
+/// One "email these businesses" run started from the Emails page. Sent one by one through sendEmail.
+model EmailRun {
+  id                 String         @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name               String
+  filters            Json           @default("{}")
+  /// QUEUED | RUNNING | PAUSED | COMPLETED | CANCELLED
+  status             String         @default("QUEUED")
+  useAi              Boolean        @default(true)
+  includeNeedsReview Boolean        @default(false)
+  /// The writing instructions given to the AI for every email in this run.
+  instructions       String?
+  writer             String?
+  total              Int            @default(0)
+  sent               Int            @default(0)
+  skipped            Int            @default(0)
+  failed             Int            @default(0)
+  message            String?
+  nextSendAt         DateTime?
+  createdById        String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  items              EmailRunItem[]
+
+  @@index([workspaceId, createdAt])
+}
+
+model EmailRunItem {
+  id          String    @id @default(cuid())
+  runId       String
+  run         EmailRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  businessId  String
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  position    Int
+  email       String
+  /// PENDING | WRITING | SENDING | SENT | SKIPPED | FAILED
+  status      String    @default("PENDING")
+  /// What the writer was given for this business (facts + verified website findings).
+  prompt      String?
+  subject     String?
+  body        String?
+  writer      String?
+  messageId   String?
+  error       String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  @@index([runId, position])
+  @@index([businessId])
+}
+
 model ClaudeTask {
   id              String            @id @default(cuid())
   workspaceId     String

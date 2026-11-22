@@ -69,7 +69,7 @@ async function runOne() {
 /** Searches/AutoProspect runs that are still "running" but have no live job (e.g. after a restart) carry on. */
 async function resumeOrphanedRuns() {
   const quiet = new Date(Date.now() - 5 * 60_000);
-  const active = await db.job.findMany({ where: { type: { in: ["DISCOVERY_RUN", "AUTOPROSPECT"] }, status: { in: ["QUEUED", "RUNNING"] } }, select: { payload: true } });
+  const active = await db.job.findMany({ where: { type: { in: ["DISCOVERY_RUN", "AUTOPROSPECT", "EMAIL_RUN"] }, status: { in: ["QUEUED", "RUNNING"] } }, select: { payload: true } });
   const busy = new Set(active.map((j) => (j.payload as { runId?: string }).runId));
   const runs = await db.discoveryRun.findMany({ where: { status: { in: ["QUEUED", "RUNNING"] }, automationRunId: null, updatedAt: { lt: quiet } }, select: { id: true, workspaceId: true, createdById: true } });
   for (const r of runs) {
@@ -80,6 +80,11 @@ async function resumeOrphanedRuns() {
   for (const a of autos) {
     if (busy.has(a.id)) continue;
     await db.job.create({ data: { workspaceId: a.workspaceId, type: "AUTOPROSPECT", label: `AutoProspect: ${a.name}`, payload: { runId: a.id }, createdById: a.createdById, maxAttempts: 3 } });
+  }
+  const emailRuns = await db.emailRun.findMany({ where: { status: { in: ["QUEUED", "RUNNING"] }, updatedAt: { lt: quiet } }, select: { id: true, workspaceId: true, createdById: true } });
+  for (const r of emailRuns) {
+    if (busy.has(r.id)) continue;
+    await db.job.create({ data: { workspaceId: r.workspaceId, type: "EMAIL_RUN", label: "Email run", payload: { runId: r.id }, createdById: r.createdById, maxAttempts: 3 } });
   }
 }
 

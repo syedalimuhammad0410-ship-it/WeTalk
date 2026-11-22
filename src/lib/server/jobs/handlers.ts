@@ -128,6 +128,10 @@ export const HANDLERS: Record<Job["type"], Handler> = {
     const { runAutoProspectSlice } = await import("../automation/autoprospect");
     return withHeartbeat(job, () => runAutoProspectSlice((job.payload as { runId: string }).runId));
   },
+  async EMAIL_RUN(job) {
+    const { runEmailRunSlice } = await import("../email/runs");
+    return withHeartbeat(job, () => runEmailRunSlice((job.payload as { runId: string }).runId, job.id));
+  },
   async CONTACT_DISCOVERY(job, ctx) {
     const { discoverContacts } = await import("../contacts/discover");
     const ids = ((job.payload as { businessIds?: string[] }).businessIds ?? []).slice(0, 2000);

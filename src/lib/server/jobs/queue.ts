@@ -38,7 +38,7 @@ export async function claimNextJob(): Promise<Job | null> {
 }
 
 /** Job types that send a heartbeat every minute, so a dead worker is noticed quickly. */
-export const HEARTBEAT_TYPES = ["DISCOVERY_RUN", "AUTOPROSPECT"] as const;
+export const HEARTBEAT_TYPES = ["DISCOVERY_RUN", "AUTOPROSPECT", "EMAIL_RUN"] as const;
 
 /** Re-queues jobs whose worker died mid-run (e.g. a deploy restarted the server). */
 export async function recoverStaleJobs() {
