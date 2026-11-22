@@ -274,7 +274,7 @@ function EmailSettings({ d }: { d: D }) {
               <dl className="mt-3 grid gap-1 text-[13px] text-muted sm:grid-cols-2">
                 <div>Sending identity: {a.displayName ? `${a.displayName} <${a.emailAddress}>` : a.emailAddress}</div>
                 <div>Reply-to: {a.replyTo || "same as sender"}</div>
-                <div>Daily limit: {d.settings.compliance.maxEmailsPerDay}/day · {d.settings.compliance.maxEmailsPerHour}/hour</div>
+                <div>Sending limit: {d.settings.compliance.maxEmailsPerDay > 0 ? `${d.settings.compliance.maxEmailsPerDay}/day` : "no daily limit"} · {d.settings.compliance.maxEmailsPerHour > 0 ? `${d.settings.compliance.maxEmailsPerHour}/hour` : "no hourly limit"}</div>
                 <div>Automatic responses: {d.settings.automation.automaticReplies && d.settings.automation.responseMode === "AUTOMATIC" ? "On (strict rules)" : "Off"}</div>
                 {a.provider === "GMAIL" && <div>Last inbox check: {a.lastSyncAt ? <RelTime d={a.lastSyncAt} /> : "never"}</div>}
                 {a.provider === "POSTMARK" && <div>Reply routing: {a.inboundAddress ? `${a.inboundAddress} (+tracking hash)` : "by headers & sender"}</div>}
@@ -363,8 +363,8 @@ function Compliance({ d }: { d: D }) {
     <>
       <Section title="Sending safeguards" description="Enforced on every send — manual, bulk, follow-up and automatic." footer={!dis && <Button loading={busy} onClick={() => save({ maxEmailsPerDay: +v.maxEmailsPerDay, maxEmailsPerHour: +v.maxEmailsPerHour, minMinutesBetweenSends: +v.minMinutesBetweenSends, minDaysBetweenContacts: +v.minDaysBetweenContacts, maxFollowUps: +v.maxFollowUps, includeUnsubscribeFooter: v.includeUnsubscribeFooter, unsubscribeText: v.unsubscribeText, physicalAddress: v.physicalAddress, aiDisclosureEnabled: v.aiDisclosureEnabled, aiDisclosureText: v.aiDisclosureText, blockFreeEmailDomains: v.blockFreeEmailDomains })}>Save</Button>}>
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Max emails / day" htmlFor="p1"><Input id="p1" type="number" value={v.maxEmailsPerDay} onChange={num("maxEmailsPerDay")} disabled={dis} /></Field>
-          <Field label="Max emails / hour" htmlFor="p2"><Input id="p2" type="number" value={v.maxEmailsPerHour} onChange={num("maxEmailsPerHour")} disabled={dis} /></Field>
+          <Field label="Max emails / day" hint="0 = no limit" htmlFor="p1"><Input id="p1" type="number" min={0} value={v.maxEmailsPerDay} onChange={num("maxEmailsPerDay")} disabled={dis} /></Field>
+          <Field label="Max emails / hour" hint="0 = no limit" htmlFor="p2"><Input id="p2" type="number" min={0} value={v.maxEmailsPerHour} onChange={num("maxEmailsPerHour")} disabled={dis} /></Field>
           <Field label="Minimum minutes between sends" htmlFor="p3"><Input id="p3" type="number" value={v.minMinutesBetweenSends} onChange={num("minMinutesBetweenSends")} disabled={dis} /></Field>
           <Field label="Minimum days between contacts" htmlFor="p4"><Input id="p4" type="number" value={v.minDaysBetweenContacts} onChange={num("minDaysBetweenContacts")} disabled={dis} /></Field>
           <Field label="Max follow-ups" htmlFor="p5"><Input id="p5" type="number" value={v.maxFollowUps} onChange={num("maxFollowUps")} disabled={dis} /></Field>

@@ -46,6 +46,39 @@ describe("Gmail provider (OAuth, HTTP mocked)", () => {
     spy.mockRestore();
   });
 
+  it("stays connected when Gmail says 'quota exceeded' during an inbox check (it's a slow-down, not a disconnect)", async () => {
+    const { ws } = await makeWorkspace({ sandbox: false });
+    const acc = await db.emailAccount.create({ data: { workspaceId: ws.id, provider: "GMAIL", emailAddress: "q@gmail.test", accessTokenEncrypted: encryptSecret("tok"), refreshTokenEncrypted: encryptSecret("r"), tokenExpiresAt: new Date(Date.now() + 3600_000), lastSyncAt: new Date("2026-01-01") } });
+    const quota = { error: { code: 403, message: "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user' of service 'gmail.googleapis.com'", errors: [{ reason: "rateLimitExceeded" }] } };
+    let listQuery = "";
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.includes("/messages?q=")) {
+        listQuery = decodeURIComponent(u);
+        return new Response(JSON.stringify({ messages: [{ id: "m1" }, { id: "m2" }] }), { status: 200 });
+      }
+      if (u.includes("/messages/m2")) return new Response(JSON.stringify({ id: "m2", threadId: "t", internalDate: String(Date.now()), payload: { headers: [{ name: "From", value: "a@b.test" }, { name: "Subject", value: "hi" }], mimeType: "text/plain", body: { data: base64url("hello") } } }), { status: 200 });
+      return new Response(JSON.stringify(quota), { status: 403 });
+    });
+    // m2 (oldest first after reverse) arrives, then m1 hits the quota: keep m2, don't throw, don't disconnect.
+    const r = await syncAccount(acc);
+    expect(r.fetched).toBe(1);
+    const after = Number(listQuery.match(/after:(\d+)/)![1]) * 1000;
+    expect(after).toBeGreaterThan(Date.now() - 4 * 86400_000); // never catches up further than ~3 days
+    expect((await db.emailAccount.findUniqueOrThrow({ where: { id: acc.id } })).status).toBe("CONNECTED");
+    // A quota error with nothing fetched is reported as a slow-down, never as revoked access.
+    spy.mockResolvedValue(new Response(JSON.stringify(quota), { status: 403 }));
+    await expect(syncAccount(acc)).rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
+    spy.mockRestore();
+  });
+
+  it("sends without a cap when the daily and hourly limits are 0", async () => {
+    const { ws, owner } = await makeWorkspace();
+    await db.complianceSettings.update({ where: { workspaceId: ws.id }, data: { maxEmailsPerDay: 0, maxEmailsPerHour: 0, minMinutesBetweenSends: 0 } });
+    for (let i = 0; i < 3; i++) await sendEmail({ workspaceId: ws.id, userId: owner.id, to: `x${i}@b.test`, subject: "s", body: "b", kind: "REPLY" });
+    expect(await db.emailMessage.count({ where: { workspaceId: ws.id, status: "SENT" } })).toBe(3);
+  });
+
   it("marks the account as needing reconnection when refresh fails", async () => {
     const { ws, owner } = await makeWorkspace({ sandbox: false });
     const acc = await db.emailAccount.create({ data: { workspaceId: ws.id, provider: "GMAIL", emailAddress: "x@gmail.test", refreshTokenEncrypted: encryptSecret("revoked") } });

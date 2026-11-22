@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Bot, Clock, Mail, MailCheck, Search, Send, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bot, Clock, Mail, MailCheck, Search, Send, ShieldCheck } from "lucide-react";
 import { Button, ButtonLink } from "../ui/button";
 import { Alert, Badge, Card, EmptyState, PageHeader } from "../ui/misc";
 import { Checkbox, Input, Select, Switch } from "../ui/form";
@@ -55,6 +55,7 @@ export function EmailsComposer({ initial, canSend }: { initial: ComposerData; ca
   const [useAi, setUseAi] = useState(Boolean(setup.writer));
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [howMany, setHowMany] = useState("");
 
   const open = runs.find((r) => ["QUEUED", "RUNNING", "PAUSED"].includes(r.status));
   const blocked = setup.blockers.length > 0;
@@ -114,6 +115,13 @@ export function EmailsComposer({ initial, canSend }: { initial: ComposerData; ca
   };
 
   const selectedCount = [...picked].filter((id) => { const l = leads.find((x) => x.id === id); return l && selectable(l); }).length;
+  const limitText = [setup.limits.perDay > 0 && `${setup.limits.perDay}/day`, setup.limits.perHour > 0 && `${setup.limits.perHour}/hour`, setup.limits.gapMinutes > 0 && `${setup.limits.gapMinutes} min apart`].filter(Boolean).join(" · ");
+  /** "How many?" — typing a number selects the first N businesses that can be emailed in the current filter. */
+  const pickFirst = (raw: string) => {
+    setHowMany(raw);
+    const n = Math.min(parseInt(raw, 10), visibleSelectable.length);
+    if (n > 0) setPicked(new Set(visibleSelectable.slice(0, n).map((l) => l.id)));
+  };
 
   return (
     <div className="pb-28">
@@ -138,7 +146,14 @@ export function EmailsComposer({ initial, canSend }: { initial: ComposerData; ca
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <Card className="flex items-center gap-3 p-4"><Mail className="h-5 w-5 text-accent" /><div className="min-w-0"><div className="text-xs text-muted">Sends from</div><div className="truncate text-sm font-medium">{setup.sender ?? "No email account connected"}</div></div></Card>
         <Card className="flex items-center gap-3 p-4"><Bot className="h-5 w-5 text-accent" /><div className="min-w-0"><div className="text-xs text-muted">Each email is written by</div><div className="truncate text-sm font-medium">{setup.writer ?? "Your template (no AI connected)"}</div></div></Card>
-        <Card className="flex items-center gap-3 p-4"><Clock className="h-5 w-5 text-accent" /><div className="min-w-0"><div className="text-xs text-muted">Your sending limits</div><div className="text-sm font-medium">{setup.limits.perDay}/day · {setup.limits.perHour}/hour · {setup.limits.gapMinutes} min apart</div></div></Card>
+        {limitText ? (
+          <Card className="flex items-center gap-3 p-4"><Clock className="h-5 w-5 text-accent" /><div className="min-w-0"><div className="text-xs text-muted">Your sending limits</div><div className="text-sm font-medium">{limitText}</div><Link href="/settings/compliance" className="text-xs text-muted underline hover:text-fg">Change (0 = no limit)</Link></div></Card>
+        ) : (
+          <Card className="flex items-start gap-3 border-amber-400/60 bg-amber-50 p-4 dark:bg-amber-500/10">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div className="min-w-0"><div className="text-sm font-semibold text-amber-900 dark:text-amber-200">Caution: no sending limit</div><div className="text-xs leading-relaxed text-amber-900/80 dark:text-amber-100/80">Sending lots of cold emails at once from a personal Gmail can land them in spam or get the account paused by Google.</div></div>
+          </Card>
+        )}
       </div>
 
       <Card className="mb-4 p-4">
@@ -223,13 +238,21 @@ export function EmailsComposer({ initial, canSend }: { initial: ComposerData; ca
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur lg:left-64">
           <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-              <div className="text-sm"><span className="font-semibold tabular-nums">{selectedCount}</span> selected{picked.size > 0 && <button className="ml-2 text-xs text-muted underline" onClick={() => setPicked(new Set())}>clear</button>}</div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="how-many" className="text-sm font-medium">How many?</label>
+                <Input id="how-many" type="number" inputMode="numeric" min={1} max={visibleSelectable.length || undefined} value={howMany} onChange={(e) => pickFirst(e.target.value)} placeholder={String(visibleSelectable.length)} className="h-8 w-20" aria-describedby="how-many-hint" />
+                <span id="how-many-hint" className="text-xs text-muted">of {visibleSelectable.length} shown</span>
+              </div>
+              <div className="text-sm"><span className="font-semibold tabular-nums">{selectedCount}</span> selected{picked.size > 0 && <button className="ml-2 text-xs text-muted underline" onClick={() => { setPicked(new Set()); setHowMany(""); }}>clear</button>}</div>
               <Switch checked={useAi} onChange={setUseAi} disabled={!setup.writer} label="Write each email with AI" description={setup.writer ? setup.writer : "Connect an AI key in Settings to turn this on"} />
               <Switch checked={includeReview} onChange={(v) => { setIncludeReview(v); if (v) setShow("all"); }} label={<span className="inline-flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" /> Include “needs review”</span>} description="Only if you have consent to email these addresses" />
             </div>
+            <div className="flex items-center gap-3">
+            {selectedCount > 40 && <span className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"><AlertTriangle className="h-3.5 w-3.5" /> Big batch — may land in spam</span>}
             <Button onClick={start} loading={busy} loadingText="Starting…" disabled={!selectedCount || blocked || Boolean(open)} title={blocked ? setup.blockers.map((b) => b.title).join(" · ") : open ? "Another run is still open" : undefined}>
               <Send className="h-4 w-4" /> Email {selectedCount || ""} {selectedCount === 1 ? "business" : "businesses"}
             </Button>
+            </div>
           </div>
         </div>
       )}

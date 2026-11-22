@@ -4,8 +4,9 @@ import { api, parseBody } from "@/lib/server/api";
 import { logActivity } from "@/lib/server/activity";
 
 const Body = z.object({
-  maxEmailsPerDay: z.number().int().min(1).max(2000),
-  maxEmailsPerHour: z.number().int().min(1).max(500),
+  // 0 = no limit.
+  maxEmailsPerDay: z.number().int().min(0).max(2000),
+  maxEmailsPerHour: z.number().int().min(0).max(500),
   maxFollowUps: z.number().int().min(0).max(5),
   minMinutesBetweenSends: z.number().int().min(0).max(240),
   minDaysBetweenContacts: z.number().int().min(0).max(60),

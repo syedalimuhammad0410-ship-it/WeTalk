@@ -106,8 +106,12 @@ export const HANDLERS: Record<Job["type"], Handler> = {
       try {
         out.push({ account: a.emailAddress, ...(await syncAccount(a)) });
       } catch (e) {
-        await db.emailAccount.update({ where: { id: a.id }, data: { status: "ERROR", lastError: describeError(e).slice(0, 500) } });
-        await notify({ workspaceId: job.workspaceId, type: "API_FAILURE", title: `Inbox sync failed for ${a.emailAddress}`, body: describeError(e), link: "/settings/email" });
+        // Only a real sign-in problem disconnects the account. Quota / rate limits / network blips are
+        // temporary: the account stays connected and the next inbox check simply tries again.
+        if ((e as { code?: string }).code === "INVALID_CREDENTIALS") {
+          await db.emailAccount.update({ where: { id: a.id }, data: { status: "ERROR", lastError: describeError(e).slice(0, 500) } });
+          if (a.status !== "ERROR") await notify({ workspaceId: job.workspaceId, type: "API_FAILURE", title: `Reconnect ${a.emailAddress}`, body: describeError(e), link: "/settings/email" });
+        }
         out.push({ account: a.emailAddress, error: describeError(e) });
       }
     }

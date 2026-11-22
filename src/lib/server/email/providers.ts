@@ -83,6 +83,7 @@ class GmailProvider implements EmailProviderClient {
       body: new URLSearchParams({ client_id: env.googleClientId(), client_secret: env.googleClientSecret(), refresh_token: decryptSecret(a.refreshTokenEncrypted), grant_type: "refresh_token" }),
     });
     const data = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error?: string; error_description?: string };
+    if (res.status === 429 || res.status >= 500) throw new AppError("UPSTREAM_ERROR", `Google sign-in is temporarily unavailable (HTTP ${res.status}). Trying again shortly.`);
     if (!res.ok || !data.access_token) {
       await db.emailAccount.update({ where: { id: a.id }, data: { status: "ERROR", lastError: `Token refresh failed: ${data.error_description ?? data.error ?? res.status}` } });
       throw new AppError("INVALID_CREDENTIALS", "Gmail access was revoked or expired. Reconnect Gmail in Settings → Email.");
@@ -99,11 +100,13 @@ class GmailProvider implements EmailProviderClient {
       service: "Gmail",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
     });
-    const data = (await res.json().catch(() => ({}))) as T & { error?: { message?: string; code?: number } };
+    const data = (await res.json().catch(() => ({}))) as T & { error?: { message?: string; code?: number; errors?: { reason?: string }[] } };
     if (!res.ok) {
       const msg = data.error?.message ?? `HTTP ${res.status}`;
+      // Google answers "slow down" (per-user quota / rate limits) with 429 or 403. That is temporary — never a broken connection.
+      const reasons = (data.error?.errors ?? []).map((e) => e.reason ?? "").join(" ");
+      if (res.status === 429 || (res.status === 403 && /quota|rate.?limit/i.test(`${msg} ${reasons}`))) throw new AppError("QUOTA_EXCEEDED", `Gmail asked WebScout to slow down: ${msg}`);
       if (res.status === 401 || res.status === 403) throw new AppError("INVALID_CREDENTIALS", `Gmail rejected the request: ${msg}`);
-      if (res.status === 429) throw new AppError("QUOTA_EXCEEDED", `Gmail sending/API quota reached: ${msg}`);
       throw new AppError("UPSTREAM_ERROR", `Gmail error: ${msg}`);
     }
     return data;
@@ -132,13 +135,15 @@ class GmailProvider implements EmailProviderClient {
   moreAfter: Date | null = null;
 
   async fetchInbound(): Promise<InboundEmail[]> {
-    const since = this.account.lastSyncAt ?? new Date(Date.now() - 3 * 86400_000);
+    // Look back at most 3 days: after a long gap a full catch-up blows through Gmail's per-user quota.
+    const floor = Date.now() - 3 * 86400_000;
+    const since = new Date(Math.max(this.account.lastSyncAt?.getTime() ?? 0, floor));
     const after = Math.floor((since.getTime() - 3600_000) / 1000);
     const q = encodeURIComponent(`in:inbox after:${after} -from:me -category:promotions -category:social -category:forums`);
-    // Page through every match (newest first), then fetch the new ones oldest-first.
+    // Page through the matches (newest first), then fetch the new ones oldest-first.
     const ids: string[] = [];
     let pageToken: string | undefined;
-    for (let page = 0; page < 20; page++) {
+    for (let page = 0; page < 5; page++) {
       const list = await this.api<{ messages?: { id: string }[]; nextPageToken?: string }>(`messages?q=${q}&maxResults=100${pageToken ? `&pageToken=${pageToken}` : ""}`);
       ids.push(...(list.messages ?? []).map((m) => m.id));
       if (!list.nextPageToken) break;
@@ -146,10 +151,18 @@ class GmailProvider implements EmailProviderClient {
     }
     const known = new Set((await db.emailMessage.findMany({ where: { workspaceId: this.account.workspaceId, providerMessageId: { in: ids } }, select: { providerMessageId: true } })).map((m) => m.providerMessageId));
     const fresh = ids.filter((id) => !known.has(id)).reverse();
-    const MAX_PER_SYNC = 200;
+    const MAX_PER_SYNC = 50;
     const out: InboundEmail[] = [];
-    for (const id of fresh.slice(0, MAX_PER_SYNC)) out.push(parseGmail(await this.api<GmailMessage>(`messages/${id}?format=full`)));
-    this.moreAfter = fresh.length > MAX_PER_SYNC && out.length ? new Date(Math.max(...out.map((m) => m.receivedAt.getTime()))) : null;
+    for (const id of fresh.slice(0, MAX_PER_SYNC)) {
+      try {
+        out.push(parseGmail(await this.api<GmailMessage>(`messages/${id}?format=full`)));
+      } catch (e) {
+        // Asked to slow down part-way: keep what we have; the next check continues from here.
+        if ((e as AppError).code === "QUOTA_EXCEEDED" && out.length) break;
+        throw e;
+      }
+    }
+    this.moreAfter = fresh.length > out.length && out.length ? new Date(Math.max(...out.map((m) => m.receivedAt.getTime()))) : null;
     return out;
   }
 }

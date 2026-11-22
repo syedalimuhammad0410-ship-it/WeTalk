@@ -265,10 +265,13 @@ async function processItem(run: EmailRun, item: EmailRunItem & { business: { nam
 async function settle(run: EmailRun, item: EmailRunItem & { business: { name: string } }, e: unknown): Promise<Outcome> {
   const err = e as AppError;
   const reason = describeError(e).slice(0, 500);
-  if (err.code === "RATE_LIMITED") {
+  const temporary = err.code === "RATE_LIMITED" || err.code === "QUOTA_EXCEEDED" || (err.code === "UPSTREAM_ERROR" && /temporar|HTTP 5\d\d|timed out|timeout|ECONNRESET|network/i.test(reason));
+  if (temporary) {
+    // Temporary: put it back in the queue and try again shortly (Gmail "slow down", a limit, a network blip).
     await db.emailRunItem.update({ where: { id: item.id }, data: { status: "PENDING" } });
+    if (err.code !== "RATE_LIMITED") await db.emailRun.update({ where: { id: run.id }, data: { message: `Gmail asked to slow down — trying ${item.business.name} again in about a minute.`, nextSendAt: new Date(Date.now() + 65_000) } });
     const retry = (err.details as { retryAfter?: number } | undefined)?.retryAfter;
-    return Math.max(15_000, (retry ?? 60) * 1000 + 1000);
+    return err.code === "RATE_LIMITED" ? Math.max(15_000, (retry ?? 60) * 1000 + 1000) : 65_000;
   }
   if (STOP_CODES.has(err.code)) {
     await db.emailRunItem.update({ where: { id: item.id }, data: { status: "PENDING", error: reason } });

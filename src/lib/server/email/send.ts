@@ -129,8 +129,9 @@ export async function sendEmail(input: SendInput) {
       tx.emailMessage.count({ where: { ...base, createdAt: { gte: new Date(now - 3600_000) } } }),
       tx.emailMessage.findFirst({ where: base, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
     ]);
-    if (day >= compliance.maxEmailsPerDay) throw new AppError("RATE_LIMITED", `Daily sending limit reached (${compliance.maxEmailsPerDay}/day). Nothing was sent.`);
-    if (hour >= compliance.maxEmailsPerHour) throw new AppError("RATE_LIMITED", `Hourly sending limit reached (${compliance.maxEmailsPerHour}/hour). Nothing was sent.`);
+    // 0 = no limit (the owner chose to send without a cap; the UI shows a caution instead).
+    if (compliance.maxEmailsPerDay > 0 && day >= compliance.maxEmailsPerDay) throw new AppError("RATE_LIMITED", `Daily sending limit reached (${compliance.maxEmailsPerDay}/day). Nothing was sent.`);
+    if (compliance.maxEmailsPerHour > 0 && hour >= compliance.maxEmailsPerHour) throw new AppError("RATE_LIMITED", `Hourly sending limit reached (${compliance.maxEmailsPerHour}/hour). Nothing was sent.`);
     if (last && compliance.minMinutesBetweenSends > 0) {
       const wait = compliance.minMinutesBetweenSends * 60_000 - (now - last.createdAt.getTime());
       if (wait > 0) throw new AppError("RATE_LIMITED", `Minimum delay between sends is ${compliance.minMinutesBetweenSends} min. Try again in ${Math.ceil(wait / 1000)}s.`, { retryAfter: Math.ceil(wait / 1000) });
