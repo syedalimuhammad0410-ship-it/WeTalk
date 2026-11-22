@@ -12,6 +12,7 @@ import { politeFetch } from "../audit/fetcher";
 import { resolveAreaWithOsm } from "../discovery/geo";
 import { smallBusinessCheck } from "../discovery/small-business";
 import { NO_SOLICITATION, emailRole, evaluateContact } from "../contacts/discover";
+import { revealCloudflareEmails } from "../contacts/cfemail";
 import { scanCommitments } from "../email/safety";
 import { addEvent, bumpStats, FindLeadsParams } from "./tasks";
 import { appUrl } from "./connections";
@@ -230,7 +231,8 @@ const pageText = (html: string) => decode(html.replace(/<script[\s\S]*?<\/script
 async function fetchPage(url: string) {
   const r = await politeFetch(url, { timeoutMs: 15000 });
   if (r.status >= 400) throw new AppError("UPSTREAM_ERROR", `the page returned HTTP ${r.status}`);
-  return { html: decode(r.body), text: pageText(r.body), finalUrl: r.finalUrl };
+  const body = revealCloudflareEmails(r.body);
+  return { html: decode(body), text: pageText(body), finalUrl: r.finalUrl };
 }
 
 export async function submitContacts(c: Ctx, items: z.infer<typeof ContactItem>[]) {

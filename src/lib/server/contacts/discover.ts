@@ -9,6 +9,7 @@ import { isSocialOrDirectoryUrl, isSuppressed, normalizeWebsite } from "../leads
 import { politeFetch } from "../audit/fetcher";
 import { fetchRobots } from "../audit/robots";
 import { analyzeHtml } from "../audit/analyze";
+import { revealCloudflareEmails } from "./cfemail";
 
 /**
  * Finds publicly listed business email addresses on a business's own website,
@@ -110,7 +111,7 @@ async function crawlForEmails(siteUrl: string): Promise<{ found: Found[]; notes:
       return null;
     }
     if (r.status >= 400 || !/html/i.test(r.headers["content-type"] ?? "text/html")) return null;
-    const page = analyzeHtml(r.body, { url: r.finalUrl, status: r.status, ms: r.ms, bytes: r.bytes, headers: r.headers });
+    const page = analyzeHtml(revealCloudflareEmails(r.body), { url: r.finalUrl, status: r.status, ms: r.ms, bytes: r.bytes, headers: r.headers });
     const text = page.text.replace(/\s+/g, " ");
     const noSolicitation = NO_SOLICITATION.test(text);
     for (const email of Array.from(new Set([...page.mailtoEmails, ...page.textEmails]))) {
