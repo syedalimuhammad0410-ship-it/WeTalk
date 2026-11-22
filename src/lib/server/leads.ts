@@ -161,6 +161,10 @@ export async function upsertBusiness(workspaceId: string, input: BusinessInput, 
       patch.websiteStatus = "WEBSITE_FOUND";
     }
     if (!e.address && input.address) patch.address = input.address;
+    if (e.latitude == null && input.latitude != null && input.longitude != null) {
+      patch.latitude = input.latitude;
+      patch.longitude = input.longitude;
+    }
     if (input.source === e.source && input.sourceId === e.sourceId) {
       if (input.rating != null) patch.rating = input.rating;
       if (input.reviewCount != null) patch.reviewCount = input.reviewCount;

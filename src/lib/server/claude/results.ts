@@ -2,7 +2,7 @@ import "../guard";
 import * as z from "zod";
 import type { Business, ClaudeConnection, ClaudeTask, Prisma } from "@prisma/client";
 import { db } from "../../db";
-import { AppError, describeError } from "../errors";
+import { AppError, describeError, fetchWithTimeout } from "../errors";
 import { notify } from "../activity";
 import { findDuplicate, upsertBusiness, normalizeWebsite } from "../leads";
 import { leadAllowance, limitReachedMessage } from "../billing";
@@ -72,12 +72,36 @@ type Ctx = { conn: ClaudeConnection; task: ClaudeTask | null };
 const actor = (c: Ctx) => c.task?.createdById ?? c.conn.createdById ?? null;
 const where = (b: { city?: string | null; region?: string | null }) => [b.city, b.region].filter(Boolean).join(", ");
 
+/** The street address without unit / floor / suite details, which geocoders can't match. */
+export function geocodableAddress(b: { address?: string | null; city?: string | null; region?: string | null; postal_code?: string | null; country?: string | null }) {
+  const street = (b.address ?? "")
+    .replace(/,?\s*(?:unit|suite|ste|apt|room|rm|#)\s*[\w-]+/gi, "")
+    .replace(/,?\s*\d+(?:st|nd|rd|th)\s*(?:fl(?:oor)?|level)\.?/gi, "")
+    .replace(/,?\s*(?:fl(?:oor)?|level)\s*\d+/gi, "")
+    .replace(/\.(?=\s|,|$)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+,/g, ",")
+    .trim()
+    .replace(/,$/, "");
+  return [street, b.city, b.region, b.postal_code, b.country].filter(Boolean).join(", ");
+}
+
+/** Coordinates for a street address: OpenStreetMap Nominatim, then Photon (also OSM data) if that fails. */
 async function geocode(b: BusinessItemT) {
-  const q = [b.address, b.city, b.region, b.postal_code, b.country].filter(Boolean).join(", ");
-  if (!b.address || q.length < 6) return null;
+  if (!b.address) return null;
+  const q = geocodableAddress(b);
+  if (q.length < 6) return null;
   try {
-    const a = await resolveAreaWithOsm(q);
-    return a.center;
+    return (await resolveAreaWithOsm(q)).center;
+  } catch {
+    /* fall through to Photon */
+  }
+  try {
+    const res = await fetchWithTimeout(`https://photon.komoot.io/api/?limit=1&q=${encodeURIComponent(q)}`, { service: "Photon geocoder", timeoutMs: 15000, headers: { "User-Agent": "WebScoutAI/1.0 (business discovery for a web agency)" } });
+    if (!res.ok) return null;
+    const d = (await res.json()) as { features?: { geometry?: { coordinates?: [number, number] } }[] };
+    const c = d.features?.[0]?.geometry?.coordinates;
+    return c ? { lat: c[1], lng: c[0] } : null;
   } catch {
     return null;
   }

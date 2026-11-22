@@ -226,3 +226,14 @@ describe("connection links", () => {
     }
   });
 });
+
+describe("geocodable addresses", () => {
+  it("drops unit, suite and floor details that geocoders can't match", async () => {
+    const { geocodableAddress } = await import("@/lib/server/claude/results");
+    const where = { city: "Toronto", region: "ON", country: "Canada" };
+    expect(geocodableAddress({ address: "495 Adelaide St. W., 2nd Fl.", ...where })).toBe("495 Adelaide St W, Toronto, ON, Canada");
+    expect(geocodableAddress({ address: "5 Northtown Way, Unit 5-6", ...where })).toBe("5 Northtown Way, Toronto, ON, Canada");
+    expect(geocodableAddress({ address: "3341 Lake Shore Blvd. W.", ...where })).toBe("3341 Lake Shore Blvd W, Toronto, ON, Canada");
+    expect(geocodableAddress({ address: "100 King St W, Suite 400", ...where })).toBe("100 King St W, Toronto, ON, Canada");
+  });
+});
