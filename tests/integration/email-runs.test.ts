@@ -98,6 +98,24 @@ describe("email runs (Emails page)", () => {
     expect(s.run.sent).toBe(1);
   });
 
+  it("lists every business that emailed back with what their latest reply was about", async () => {
+    const { ws } = await setup();
+    const a = await lead(ws.id, "Reply Bakery", "hi@replybakery.test", "ELIGIBLE");
+    const b = await lead(ws.id, "Quiet Bakery", "hi@quiet.test", "ELIGIBLE");
+    const conv = await db.conversation.create({ data: { workspaceId: ws.id, businessId: a.id, subject: "A website idea", counterpartEmail: "hi@replybakery.test", isHot: true } });
+    const junk = await db.conversation.create({ data: { workspaceId: ws.id, businessId: b.id, subject: "Newsletter", counterpartEmail: "news@quiet.test", filtered: true } });
+    const inbound = (conversationId: string, businessId: string, minutesAgo: number, extra: Record<string, unknown>) =>
+      db.emailMessage.create({ data: { workspaceId: ws.id, conversationId, businessId, direction: "INBOUND", status: "RECEIVED", kind: "INBOUND", fromAddress: "hi@replybakery.test", toAddress: "agency@studio.test", subject: "Re: A website idea", bodyText: "Sounds good", receivedAt: new Date(Date.now() - minutesAgo * 60_000), createdAt: new Date(Date.now() - minutesAgo * 60_000), ...extra } });
+    await inbound(conv.id, a.id, 30, { intent: "QUESTION", bodyText: "What would it include?" });
+    await inbound(conv.id, a.id, 5, { intent: "PRICING", analysis: { summary: "Asked how much a new site with online ordering costs.", recommended: "Reply with the Complete Website package." } });
+    await inbound(junk.id, b.id, 2, { intent: "OTHER", fromAddress: "news@quiet.test", bodyText: "Our weekly deals" });
+
+    const { emailReplies } = await import("@/lib/server/email/replies");
+    const replies = await emailReplies(ws.id);
+    expect(replies).toHaveLength(1); // the newsletter conversation is filtered out
+    expect(replies[0]).toMatchObject({ name: "Reply Bakery", intentLabel: "Asked about price", group: "pricing", messages: 2, hot: true, summary: "Asked how much a new site with online ordering costs.", nextStep: "Reply with the Complete Website package." });
+  });
+
   it("groups business types for the filters", () => {
     expect(typeGroup("Italian restaurant")).toBe("food");
     expect(typeGroup("Bakery Cafe")).toBe("bakery");

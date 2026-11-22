@@ -11,10 +11,10 @@ import { cn } from "@/lib/utils";
 import { RUN_STATUS } from "./composer";
 
 type Biz = { id: string; name: string; category: string | null; city: string | null; website?: string | null; phone?: string | null };
-type LightItem = { id: string; position: number; status: string; email: string; subject: string | null; error: string | null; writer: string | null; finishedAt: string | null; business: Biz };
+type LightItem = { id: string; position: number; status: string; email: string; subject: string | null; error: string | null; writer: string | null; finishedAt: string | null; business: Biz; replied?: string | null };
 type FullItem = LightItem & { prompt: string | null; body: string | null; startedAt: string | null };
 export type RunState = {
-  run: { id: string; name: string; status: string; total: number; sent: number; skipped: number; failed: number; left: number; message: string | null; nextSendAt: string | null; writer: string | null; instructions: string | null; useAi: boolean; createdAt: string; startedAt: string | null; finishedAt: string | null };
+  run: { id: string; name: string; status: string; total: number; sent: number; skipped: number; failed: number; left: number; replied?: number; message: string | null; nextSendAt: string | null; writer: string | null; instructions: string | null; useAi: boolean; createdAt: string; startedAt: string | null; finishedAt: string | null };
   items: LightItem[];
   current: FullItem | null;
   selected: FullItem | null;
@@ -181,7 +181,7 @@ export function EmailRunLive({ initial, canControl }: { initial: RunState; canCo
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
-          { label: "Emailed", v: s.run.sent, cls: "text-emerald-600", icon: <Check className="h-4 w-4" /> },
+          { label: "Emailed", v: s.run.sent, cls: "text-emerald-600", icon: <Check className="h-4 w-4" />, hint: s.run.replied ? <Link href="/emails?tab=replies" className="text-emerald-700 underline">{s.run.replied} replied — see what they said</Link> : null },
           { label: "Left to email", v: s.run.left, cls: "text-fg", icon: <Mail className="h-4 w-4" /> },
           { label: "Skipped", v: s.run.skipped, cls: "text-amber-600", icon: <SkipForward className="h-4 w-4" /> },
           { label: "Failed", v: s.run.failed, cls: "text-red-600", icon: <X className="h-4 w-4" /> },
@@ -189,6 +189,7 @@ export function EmailRunLive({ initial, canControl }: { initial: RunState; canCo
           <Card key={x.label} className="p-4">
             <div className="flex items-center justify-between text-[13px] text-muted"><span>{x.label}</span><span className="text-faint">{x.icon}</span></div>
             <div className={cn("mt-1 text-[28px] font-semibold tabular-nums tracking-tight", x.cls)}>{x.v}</div>
+            {"hint" in x && x.hint && <div className="mt-0.5 text-xs">{x.hint}</div>}
           </Card>
         ))}
       </div>
@@ -289,7 +290,7 @@ export function EmailRunLive({ initial, canControl }: { initial: RunState; canCo
                   <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full", TONE_CLS[m.tone])}>{m.icon}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{i.business.name}</span>
-                    <span className="block truncate text-[11px] text-muted">{i.status === "SKIPPED" || i.status === "FAILED" ? i.error ?? m.label : `${i.business.city ?? ""}${i.business.city ? " · " : ""}${m.label}`}</span>
+                    <span className={cn("block truncate text-[11px]", i.replied ? "font-medium text-emerald-700" : "text-muted")}>{i.replied ? `Replied · ${i.replied}` : i.status === "SKIPPED" || i.status === "FAILED" ? i.error ?? m.label : `${i.business.city ?? ""}${i.business.city ? " · " : ""}${m.label}`}</span>
                   </span>
                 </button>
               );

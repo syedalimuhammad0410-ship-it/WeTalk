@@ -9,6 +9,7 @@ import { getSettings } from "../workspace";
 import { enqueueJob } from "../jobs/queue";
 import { generateOutreachDraft, writerLabel } from "./compose";
 import { sendEmail } from "./send";
+import { INTENT_LABEL } from "./replies";
 
 /**
  * Email runs: "email these businesses" from the Emails page, watched live.
@@ -326,9 +327,13 @@ export async function emailRunState(workspaceId: string, runId: string, selected
     id ? db.emailRunItem.findFirst({ where: { id, runId }, include: { business: { select: { id: true, name: true, category: true, city: true, website: true, phone: true } } } }) : null;
   const [current, selected] = await Promise.all([full(currentId), selectedItemId && selectedItemId !== currentId ? full(selectedItemId) : null]);
   const left = items.filter((i) => ["PENDING", "WRITING", "SENDING"].includes(i.status)).length;
+  // Who has emailed back since this run started, and what about.
+  const replies = await db.emailMessage.findMany({ where: { workspaceId, direction: "INBOUND", businessId: { in: items.map((i) => i.business.id) }, createdAt: { gte: run.createdAt } }, orderBy: { createdAt: "desc" }, select: { businessId: true, intent: true } });
+  const replied = new Map<string, string>();
+  for (const r of replies) if (!replied.has(r.businessId!)) replied.set(r.businessId!, r.intent ? INTENT_LABEL[r.intent] : "Replied");
   return {
-    run: { id: run.id, name: run.name, status: run.status, total: run.total, sent: run.sent, skipped: run.skipped, failed: run.failed, left, message: run.message, nextSendAt: run.nextSendAt, writer: run.writer, instructions: run.instructions, useAi: run.useAi, createdAt: run.createdAt, startedAt: run.startedAt, finishedAt: run.finishedAt },
-    items,
+    run: { id: run.id, name: run.name, status: run.status, total: run.total, sent: run.sent, skipped: run.skipped, failed: run.failed, left, replied: replied.size, message: run.message, nextSendAt: run.nextSendAt, writer: run.writer, instructions: run.instructions, useAi: run.useAi, createdAt: run.createdAt, startedAt: run.startedAt, finishedAt: run.finishedAt },
+    items: items.map((i) => ({ ...i, replied: replied.get(i.business.id) ?? null })),
     current,
     selected,
     setup,

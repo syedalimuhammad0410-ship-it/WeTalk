@@ -6,6 +6,8 @@ import { AlertTriangle, ArrowRight, Bot, Clock, Mail, MailCheck, Search, Send, S
 import { Button, ButtonLink } from "../ui/button";
 import { Alert, Badge, Card, EmptyState, PageHeader } from "../ui/misc";
 import { Checkbox, Input, Select, Switch } from "../ui/form";
+import { Tabs } from "../ui/tabs";
+import { RepliesView, type ReplyRow } from "./replies";
 import { RelTime } from "../ui/time";
 import { useToast } from "../ui/toast";
 import { apiFetch } from "@/lib/client";
@@ -17,7 +19,7 @@ export type AudienceLead = {
 };
 type Setup = { blockers: { code: string; title: string; detail: string; href: string }[]; sender: string | null; writer: string | null; limits: { perDay: number; perHour: number; gapMinutes: number } };
 type RunRow = { id: string; name: string; status: string; total: number; sent: number; skipped: number; failed: number; createdAt: string; finishedAt: string | null };
-export type ComposerData = { leads: AudienceLead[]; setup: Setup; runs: RunRow[]; groups: { id: string; label: string }[] };
+export type ComposerData = { leads: AudienceLead[]; setup: Setup; runs: RunRow[]; groups: { id: string; label: string }[]; replies: ReplyRow[] };
 
 type Show = "ready" | "review" | "emailed" | "all";
 const SHOW: { id: Show; label: string }[] = [
@@ -43,10 +45,15 @@ export const RUN_STATUS: Record<string, { label: string; tone: "emerald" | "sky"
   CANCELLED: { label: "Cancelled", tone: "zinc" },
 };
 
-export function EmailsComposer({ initial, canSend }: { initial: ComposerData; canSend: boolean }) {
+export function EmailsComposer({ initial, canSend, initialTab = "send" }: { initial: ComposerData; canSend: boolean; initialTab?: "send" | "replies" }) {
   const router = useRouter();
   const toast = useToast();
-  const { leads, setup, runs, groups } = initial;
+  const { leads, setup, runs, groups, replies } = initial;
+  const [tab, setTab] = useState<"send" | "replies">(initialTab);
+  const switchTab = (t: "send" | "replies") => {
+    setTab(t);
+    window.history.replaceState(null, "", t === "replies" ? "/emails?tab=replies" : "/emails");
+  };
   const [q, setQ] = useState("");
   const [group, setGroup] = useState<string>("all");
   const [city, setCity] = useState<string>("all");
@@ -128,8 +135,10 @@ export function EmailsComposer({ initial, canSend }: { initial: ComposerData; ca
       <PageHeader
         title="Emails"
         description="Email your leads in one go. Filter by type or city, pick specific businesses or all of them, then watch each email get written and sent."
-        actions={readyCount > 0 && canSend ? <Button variant="outline" onClick={pickAllReady}><MailCheck className="h-4 w-4" /> Select all {readyCount} ready</Button> : null}
+        actions={tab === "send" && readyCount > 0 && canSend ? <Button variant="outline" onClick={pickAllReady}><MailCheck className="h-4 w-4" /> Select all {readyCount} ready</Button> : null}
       />
+      <Tabs className="mb-5" value={tab} onChange={switchTab} tabs={[{ id: "send", label: "Send emails" }, { id: "replies", label: "Replies", count: replies.length }]} />
+      {tab === "replies" ? <RepliesView replies={replies} /> : (<>
 
       {setup.blockers.map((b) => (
         <Alert key={b.code} tone="warning" className="mb-3" title={b.title} action={<ButtonLink href={b.href} size="sm" variant="outline">Fix this <ArrowRight className="h-3.5 w-3.5" /></ButtonLink>}>
@@ -234,7 +243,9 @@ export function EmailsComposer({ initial, canSend }: { initial: ComposerData; ca
         </Card>
       )}
 
-      {canSend && (
+      </>)}
+
+      {canSend && tab === "send" && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur lg:left-64">
           <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">

@@ -3,6 +3,8 @@ import { pageContext } from "@/lib/server/page";
 import { categoryCounts, inboxWhere, parseInboxFilters, sectionCounts } from "@/lib/server/inbox";
 import { INBOX_SECTIONS, type InboxSection } from "@/lib/constants";
 import { PageHeader } from "@/components/ui/misc";
+import { ButtonLink } from "@/components/ui/button";
+import { MessageSquareReply } from "lucide-react";
 import { InboxList } from "@/components/inbox/inbox-list";
 import { ReviewQueue } from "@/components/inbox/review-queue";
 import { InboxActions } from "@/components/inbox/inbox-actions";
@@ -43,7 +45,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
     : [];
   return (
     <div>
-      <PageHeader title="Inbox" description="Replies are matched to the right lead and conversation, classified, and drafted — you stay in control." actions={<InboxActions accounts={accounts} />} />
+      <PageHeader title="Inbox" description="Replies are matched to the right lead and conversation, classified, and drafted — you stay in control." actions={<><ButtonLink href="/emails?tab=replies" variant="outline" size="sm"><MessageSquareReply className="h-4 w-4" /> Who replied &amp; why</ButtonLink><InboxActions accounts={accounts} /></>} />
       {section === "review" ? (
         <ReviewQueue filters={filters} categoryCounts={catCounts} counts={counts} items={JSON.parse(JSON.stringify(reviewItems))} perms={{ approve: ctx.can("drafts.approve"), send: ctx.can("emails.send") }} />
       ) : (
