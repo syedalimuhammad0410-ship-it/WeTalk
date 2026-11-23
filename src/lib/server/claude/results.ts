@@ -48,6 +48,9 @@ export const BusinessItem = z.object({
   review_count: z.number().int().min(0).max(10_000_000).optional(),
   services: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
   photo_urls: z.array(httpUrl).max(5).optional(),
+  /** A business email published on a public page, and that page's exact URL (WebScout opens it to confirm). */
+  email: z.string().trim().toLowerCase().email().max(200).optional(),
+  email_source_url: httpUrl.optional(),
   sources: z.array(z.object({ url: httpUrl, type: sourceType })).min(1, "At least one source URL is required").max(10),
 });
 export type BusinessItemT = z.infer<typeof BusinessItem>;
@@ -121,11 +124,14 @@ export async function submitBusinesses(c: Ctx, items: BusinessItemT[]) {
   const params = c.task?.type === "FIND_LEADS" ? FindLeadsParams.safeParse(c.task.parameters).data ?? null : null;
   const allowance = await leadAllowance(ws);
   let remaining = allowance.remaining;
-  const added: { business_id: string; name: string; city: string | null; geocoded: boolean }[] = [];
+  const added: { business_id: string; name: string; city: string | null; geocoded: boolean; email?: string }[] = [];
+  let contactsVerified = 0;
   const duplicates: { business_id: string; name: string; reason: string }[] = [];
   const rejected: { name: string; reason: string }[] = [];
   const toAudit: string[] = [];
 
+  const rule = params?.contact ?? "any";
+  const pages: PageCache = new Map();
   for (const b of items) {
     const reject = async (reason: string) => {
       rejected.push({ name: b.name, reason });
@@ -133,6 +139,26 @@ export async function submitBusinesses(c: Ctx, items: BusinessItemT[]) {
     };
     if (!b.address && !b.city) {
       await reject("needs at least a city or street address");
+      continue;
+    }
+    // Contact rule for this task: the email must really be published on the page given; the phone must look like one.
+    const hasPhone = (b.phone ?? "").replace(/\D/g, "").length >= 7;
+    let emailPage: Awaited<ReturnType<typeof fetchPage>> | null = null;
+    let emailProblem: string | null = null;
+    if (b.email) {
+      if (!b.email_source_url) emailProblem = "the email needs email_source_url — the exact page where it is published";
+      else {
+        const checked = await emailOnPage(pages, b.email_source_url, b.email);
+        if ("problem" in checked) emailProblem = checked.problem;
+        else emailPage = checked.page;
+      }
+    }
+    if (rule === "email_and_phone" && (!hasPhone || !emailPage)) {
+      await reject(!hasPhone && !b.email ? "this task needs a phone number AND a published email" : !hasPhone ? "this task needs a phone number too" : !b.email ? "this task needs a published business email too (email + email_source_url)" : `email not confirmed: ${emailProblem}`);
+      continue;
+    }
+    if (rule === "email_or_phone" && !hasPhone && !emailPage) {
+      await reject(b.email ? `no phone, and the email wasn't confirmed: ${emailProblem}` : "this task needs a phone number or a published email");
       continue;
     }
     const site = normalizeWebsite(b.website);
@@ -180,6 +206,13 @@ export async function submitBusinesses(c: Ctx, items: BusinessItemT[]) {
       await addEvent({ workspaceId: ws, id: c.task?.id }, "BUSINESS_DUPLICATE", `Already in your CRM: ${r.business.name} (${r.duplicateReason})`, { businessId: r.business.id });
     }
     await saveSourcedFacts(c, r.business, b);
+    if (emailPage && b.email) {
+      const saved = await saveCheckedContact(c, r.business, { email: b.email }, emailPage);
+      contactsVerified++;
+      if (r.created) added[added.length - 1]!.email = `${b.email} (${saved.eligibility.toLowerCase().replace("_", " ")})`;
+    } else if (b.email && emailProblem && rule === "any") {
+      await addEvent({ workspaceId: ws, id: c.task?.id }, "CONTACT_REJECTED", `Not saved: ${b.email} for ${r.business.name} — ${emailProblem}`, { businessId: r.business.id });
+    }
   }
 
   if (toAudit.length) {
@@ -189,7 +222,7 @@ export async function submitBusinesses(c: Ctx, items: BusinessItemT[]) {
   }
   let progress: { found_so_far: number; target: number } | null = null;
   if (c.task) {
-    const s = await bumpStats(c.task.id, { submitted: items.length, created: added.length, duplicates: duplicates.length, rejected: rejected.length });
+    const s = await bumpStats(c.task.id, { submitted: items.length, created: added.length, duplicates: duplicates.length, rejected: rejected.length, ...(contactsVerified ? { contactsVerified } : {}) });
     const target = params?.count ?? 0;
     if (target) {
       progress = { found_so_far: s.created ?? 0, target };
@@ -235,48 +268,58 @@ async function fetchPage(url: string) {
   return { html: decode(body), text: pageText(body), finalUrl: r.finalUrl };
 }
 
+type CheckedPage = Awaited<ReturnType<typeof fetchPage>>;
+type PageCache = Map<string, CheckedPage | Error>;
+
+/** Opens the page (once per URL) and confirms the email is published there, exactly as given. */
+async function emailOnPage(pages: PageCache, url: string, email: string): Promise<{ page: CheckedPage } | { problem: string }> {
+  let page = pages.get(url);
+  if (!page) {
+    page = await fetchPage(url).catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))));
+    pages.set(url, page);
+  }
+  if (page instanceof Error) return { problem: `WebScout couldn't open the source page to confirm it (${describeError(page)})` };
+  if (!`${page.html}\n${page.text}`.toLowerCase().includes(email.toLowerCase())) return { problem: "the address doesn't appear on that page — only send emails exactly as published" };
+  return { page };
+}
+
+/** Saves a confirmed email on the lead, runs the CASL eligibility checks and logs it. */
+async function saveCheckedContact(c: Ctx, business: Business, it: { email: string; contact_name?: string; role?: string }, page: CheckedPage) {
+  const ws = business.workspaceId;
+  const { automation } = await getSettings(ws);
+  const email = it.email.toLowerCase();
+  const host = new URL(page.finalUrl).hostname.replace(/^www\./, "");
+  const own = Boolean(business.websiteDomain && (host === business.websiteDomain || host.endsWith(`.${business.websiteDomain}`)));
+  const classification = own ? "VERIFIED_PUBLIC" : "PUBLIC_DIRECTORY";
+  const ti = page.text.toLowerCase().indexOf(email);
+  const snippet = ti >= 0 ? page.text.slice(Math.max(0, ti - 100), ti + email.length + 100).trim() : email;
+  const existing = await db.contact.findFirst({ where: { businessId: business.id, email } });
+  const contact = existing
+    ? await db.contact.update({ where: { id: existing.id }, data: existing.classification === "VERIFIED_PUBLIC" || existing.classification === "MANUAL" ? {} : { classification, sourceUrl: page.finalUrl, sourceSnippet: snippet.slice(0, 300), source: "Found by Claude research (checked on the page)" } })
+    : await db.contact.create({ data: { workspaceId: ws, businessId: business.id, email, name: it.contact_name ?? null, role: it.role ?? emailRole(email).role, source: "Found by Claude research (checked on the page)", classification, sourceUrl: page.finalUrl, sourceSnippet: snippet.slice(0, 300) } });
+  const evaluated = await evaluateContact(contact, business, { checksEnabled: automation.eligibilityChecksEnabled, noSolicitation: NO_SOLICITATION.test(page.text), snippet });
+  if (!business.email && evaluated.eligibility !== "INELIGIBLE") {
+    await db.business.update({ where: { id: business.id }, data: { email, emailSource: own ? `Publicly listed on the business website (${page.finalUrl})` : `Public listing (${page.finalUrl}) — found by Claude` } });
+  }
+  await addEvent({ workspaceId: ws, id: c.task?.id }, "CONTACT_VERIFIED", `Verified ${email} for ${business.name} on ${host} — ${evaluated.eligibility.toLowerCase().replace("_", " ")}`, { businessId: business.id });
+  return evaluated;
+}
+
 export async function submitContacts(c: Ctx, items: z.infer<typeof ContactItem>[]) {
   const ws = c.conn.workspaceId;
-  const { automation } = await getSettings(ws);
   const verified: { business_id: string; email: string; eligibility: string; reason: string }[] = [];
   const rejected: { business_id: string; email: string; reason: string }[] = [];
-  const pages = new Map<string, Awaited<ReturnType<typeof fetchPage>> | Error>();
+  const pages: PageCache = new Map();
   for (const it of items.slice(0, 25)) {
     const business = await businessInWorkspace(ws, it.business_id);
-    const reject = async (reason: string) => {
-      rejected.push({ business_id: business.id, email: it.email, reason });
-      await addEvent({ workspaceId: ws, id: c.task?.id }, "CONTACT_REJECTED", `Not saved: ${it.email} for ${business.name} — ${reason}`, { businessId: business.id });
-    };
-    let page = pages.get(it.source_url);
-    if (!page) {
-      page = await fetchPage(it.source_url).catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))));
-      pages.set(it.source_url, page);
-    }
-    if (page instanceof Error) {
-      await reject(`WebScout couldn't open the source page to confirm it (${describeError(page)})`);
+    const checked = await emailOnPage(pages, it.source_url, it.email);
+    if ("problem" in checked) {
+      rejected.push({ business_id: business.id, email: it.email, reason: checked.problem });
+      await addEvent({ workspaceId: ws, id: c.task?.id }, "CONTACT_REJECTED", `Not saved: ${it.email} for ${business.name} — ${checked.problem}`, { businessId: business.id });
       continue;
     }
-    const hay = `${page.html}\n${page.text}`.toLowerCase();
-    const at = hay.indexOf(it.email);
-    if (at < 0) {
-      await reject("the address doesn't appear on that page — only send emails exactly as published");
-      continue;
-    }
-    const host = new URL(page.finalUrl).hostname.replace(/^www\./, "");
-    const own = Boolean(business.websiteDomain && (host === business.websiteDomain || host.endsWith(`.${business.websiteDomain}`)));
-    const classification = own ? "VERIFIED_PUBLIC" : "PUBLIC_DIRECTORY";
-    const ti = page.text.toLowerCase().indexOf(it.email);
-    const snippet = ti >= 0 ? page.text.slice(Math.max(0, ti - 100), ti + it.email.length + 100).trim() : it.email;
-    const existing = await db.contact.findFirst({ where: { businessId: business.id, email: it.email } });
-    const contact = existing
-      ? await db.contact.update({ where: { id: existing.id }, data: existing.classification === "VERIFIED_PUBLIC" || existing.classification === "MANUAL" ? {} : { classification, sourceUrl: page.finalUrl, sourceSnippet: snippet.slice(0, 300), source: "Found by Claude research (checked on the page)" } })
-      : await db.contact.create({ data: { workspaceId: ws, businessId: business.id, email: it.email, name: it.contact_name ?? null, role: it.role ?? emailRole(it.email).role, source: "Found by Claude research (checked on the page)", classification, sourceUrl: page.finalUrl, sourceSnippet: snippet.slice(0, 300) } });
-    const evaluated = await evaluateContact(contact, business, { checksEnabled: automation.eligibilityChecksEnabled, noSolicitation: NO_SOLICITATION.test(page.text), snippet });
-    if (!business.email && evaluated.eligibility !== "INELIGIBLE") {
-      await db.business.update({ where: { id: business.id }, data: { email: it.email, emailSource: own ? `Publicly listed on the business website (${page.finalUrl})` : `Public listing (${page.finalUrl}) — found by Claude` } });
-    }
+    const evaluated = await saveCheckedContact(c, business, it, checked.page);
     verified.push({ business_id: business.id, email: it.email, eligibility: evaluated.eligibility, reason: evaluated.eligibilityReason ?? "" });
-    await addEvent({ workspaceId: ws, id: c.task?.id }, "CONTACT_VERIFIED", `Verified ${it.email} for ${business.name} on ${host} — ${evaluated.eligibility.toLowerCase().replace("_", " ")}`, { businessId: business.id });
   }
   if (c.task) await bumpStats(c.task.id, { contactsVerified: verified.length, contactsRejected: rejected.length });
   return { verified, rejected, note: "ELIGIBLE means CASL allows a first business email; NEEDS_REVIEW means the user must confirm consent first. Nothing is sent without the user's approval." };

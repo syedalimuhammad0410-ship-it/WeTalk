@@ -64,7 +64,7 @@ describe("Claude bridge (MCP connector)", () => {
     expect((await c.call("get_next_task")).data.status).toBe("no_tasks");
 
     // The user queues a task; Claude picks it up with a full brief.
-    const task = await createTask(ws.id, owner.id, CreateTaskInput.parse({ type: "FIND_LEADS", params: { locations: ["Toronto, ON"], businessTypes: ["bakeries"], count: 3 } }));
+    const task = await createTask(ws.id, owner.id, CreateTaskInput.parse({ type: "FIND_LEADS", params: { locations: ["Toronto, ON"], businessTypes: ["bakeries"], count: 3, contact: "any" } }));
     const next = (await c.call("get_next_task")).data;
     expect(next).toMatchObject({ status: "assigned", task_id: task.id });
     expect(next.brief).toContain("submit_businesses");
@@ -145,6 +145,35 @@ describe("Claude bridge (MCP connector)", () => {
     expect((await c.post({ jsonrpc: "2.0", id: 99, method: "tools/list" })).status).toBe(401);
   });
 
+  it("only accepts fully contactable leads when the task asks for email + phone, and takes any count and ANY location", async () => {
+    const { ws, owner } = await makeWorkspace({ company: { location: "Mississauga, ON" } });
+    const { token } = await createConnection(ws.id, owner.id, "Claude Desktop");
+    const c = client(token);
+    const task = await createTask(ws.id, owner.id, CreateTaskInput.parse({ type: "FIND_LEADS", params: { locations: ["ANY"], businessTypes: ["any"], count: 250, websiteFilter: "any" } }));
+    expect(task.title).toBe("Find 250 businesses anywhere in Canada (email + phone)");
+    const next = (await c.call("get_next_task")).data;
+    expect(next.brief).toContain("anywhere in Canada");
+    expect(next.brief).toContain("Mississauga, ON");
+    expect(next.brief).toContain("BOTH a phone number AND a business email");
+    const r = (await c.call("submit_businesses", { task_id: task.id, idempotency_key: "cr-1", businesses: [
+      bakery("Phone Only Bakery", { phone: "416-555-0199" }),
+      bakery("Email Only Bakery", { email: "hello@crumbbakery.test", email_source_url: `${site}/contact` }),
+      bakery("Wrong Email Bakery", { phone: "416-555-0198", email: "nobody@crumbbakery.test", email_source_url: `${site}/contact` }),
+      bakery("Crumb Contactable", { phone: "416-555-0197", website: site, email: "hello@crumbbakery.test", email_source_url: `${site}/contact` }),
+    ] })).data;
+    expect(r.added.map((a: { name: string }) => a.name)).toEqual(["Crumb Contactable"]);
+    expect(r.added[0].email).toMatch(/^hello@crumbbakery\.test/);
+    expect(r.rejected.map((x: { name: string; reason: string }) => x.reason)).toEqual([
+      expect.stringMatching(/published business email/),
+      expect.stringMatching(/phone number too/),
+      expect.stringMatching(/email not confirmed/),
+    ]);
+    const lead = await db.business.findFirstOrThrow({ where: { workspaceId: ws.id, name: "Crumb Contactable" } });
+    expect(lead.email).toBe("hello@crumbbakery.test");
+    expect(await db.contact.count({ where: { businessId: lead.id, email: "hello@crumbbakery.test" } })).toBe(1);
+    expect(r.task_progress).toEqual({ found_so_far: 1, target: 250 });
+  });
+
   it("keeps workspaces apart and enforces the plan's lead allowance", async () => {
     const a = await makeWorkspace();
     const b = await makeWorkspace();
@@ -182,7 +211,7 @@ describe("Live investigation view data", () => {
     const { ws, owner } = await makeWorkspace();
     const { token } = await createConnection(ws.id, owner.id, "Live");
     const conn = (await (await import("@/lib/server/claude/connections")).authenticateToken(token))!;
-    const task = await createTask(ws.id, owner.id, CreateTaskInput.parse({ type: "FIND_LEADS", params: { locations: ["Toronto, ON"], businessTypes: ["bakeries"], count: 2 } }));
+    const task = await createTask(ws.id, owner.id, CreateTaskInput.parse({ type: "FIND_LEADS", params: { locations: ["Toronto, ON"], businessTypes: ["bakeries"], count: 2, contact: "any" } }));
     await db.claudeTask.update({ where: { id: task.id }, data: { status: "RUNNING", claimedAt: new Date(), parameters: { ...(task.parameters as object), area: { center: [-79.38, 43.65] } } } });
     const running = await db.claudeTask.findUniqueOrThrow({ where: { id: task.id } });
     const r = await submitBusinesses({ conn, task: running }, [{ name: "Dough Bros", category: "Bakery", city: "Toronto", latitude: 43.65, longitude: -79.39, sources: [{ url: "https://maps.example/dough", type: "MAPS" }], description: "Bagels and bread" }]);

@@ -18,10 +18,15 @@ export const GLOBAL_PAUSE = "Paused: all automation";
 
 const names = z.array(z.string().trim().min(2).max(120)).min(1).max(10);
 
+/** "ANY" / "anywhere" / "all" in a location or type field means no restriction. */
+export const isAny = (v: string) => /^(any|anywhere|all|everywhere|any business(es)?|all businesses)$/i.test(v.trim());
+
 export const FindLeadsParams = z.object({
   locations: names,
   businessTypes: names,
-  count: z.coerce.number().int().min(1).max(50).default(10),
+  count: z.coerce.number().int().min(1).max(1000).default(10),
+  /** What a lead must have before WebScout accepts it. */
+  contact: z.enum(["email_and_phone", "email_or_phone", "any"]).default("email_and_phone"),
   /** none = no website of their own; none_or_weak = no website or a weak/outdated one; any = no filter */
   websiteFilter: z.enum(["any", "none_or_weak", "none"]).default("none_or_weak"),
   smallOnly: z.boolean().default(true),
@@ -62,7 +67,9 @@ export async function createTask(workspaceId: string, userId: string, input: Cre
   let params: Record<string, unknown>;
   if (input.type === "FIND_LEADS") {
     const p = input.params;
-    title = `Find ${p.count} ${p.businessTypes.join(", ")} in ${p.locations.join("; ")}`;
+    const types = p.businessTypes.every(isAny) ? "businesses" : p.businessTypes.join(", ");
+    const places = p.locations.every(isAny) ? "anywhere in Canada" : `in ${p.locations.join("; ")}`;
+    title = `Find ${p.count} ${types} ${places}${p.contact === "email_and_phone" ? " (email + phone)" : p.contact === "email_or_phone" ? " (email or phone)" : ""}`;
     params = p;
   } else {
     const p = input.params;
@@ -232,8 +239,18 @@ export async function taskBrief(task: ClaudeTask) {
 
   if (task.type === "FIND_LEADS") {
     const p = FindLeadsParams.parse(task.parameters);
+    const anywhere = p.locations.every(isAny);
+    const home = [company.location, company.serviceAreas].filter(Boolean).join("; ") || "the agency's own city";
+    const contactRule =
+      p.contact === "email_and_phone"
+        ? "CONTACT REQUIRED: only submit businesses with BOTH a phone number AND a business email that is published on a public page (their website's contact/about page is best). Put the email and the exact page URL where it appears in submit_businesses (email + email_source_url) — WebScout opens that page to confirm it and rejects businesses without both."
+        : p.contact === "email_or_phone"
+          ? "CONTACT REQUIRED: every business needs a phone number or a published business email (email preferred — include email + email_source_url in submit_businesses when you find one). Businesses with neither are rejected."
+          : "";
     lines.push(
-      `GOAL: Find up to ${p.count} real, currently operating ${p.businessTypes.join(" / ")} in ${p.locations.join("; ")} that would benefit from the agency's services.`,
+      `GOAL: Find ${p.count} real, currently operating ${p.businessTypes.every(isAny) ? "businesses of any kind" : p.businessTypes.join(" / ")} ${anywhere ? "anywhere in Canada" : `in ${p.locations.join("; ")}`} that would benefit from the agency's services. Keep going until you have ${p.count} accepted businesses.`,
+      anywhere ? `No location limit: start close to the agency (${home}) and the surrounding area (Toronto/GTA, Mississauga, Milton, Hamilton), then widen across Ontario and the rest of Canada.` : "",
+      contactRule,
       p.websiteFilter === "none" ? "Only businesses with NO website of their own (a Facebook/Instagram page or directory listing alone is fine)." : p.websiteFilter === "none_or_weak" ? "Prefer businesses with no website or a weak one (outdated, broken, not mobile-friendly, no online booking or contact form). WebScout audits every website automatically." : "Any website status is fine.",
       p.smallOnly ? "Small, independent businesses only — skip chains, franchises, large companies, government bodies and landmarks/attractions." : "",
       p.notes ? `User's notes: ${p.notes}` : "",
@@ -242,7 +259,7 @@ export async function taskBrief(task: ClaudeTask) {
       "",
       "HOW TO REPORT:",
       `1. Call submit_businesses in batches of up to 10 as you go, with task_id "${task.id}" and a new idempotency_key per batch (e.g. "${shortId(task.id)}-1", "${shortId(task.id)}-2"). The reply says which were added, which were already in the CRM, and which were rejected and why — fix or drop rejected ones, don't resend them unchanged.`,
-      p.findContacts ? "2. If a business's own website publishes a business email, call submit_contacts with the exact page URL where it appears (WebScout opens that page to confirm it). Don't guess emails or use personal addresses." : "2. (Contact emails not needed for this task.)",
+      p.contact !== "any" || p.findContacts ? "2. Business emails: include them in submit_businesses (email + email_source_url = the exact page where it is published), or add them later with submit_contacts. WebScout opens the page to confirm the address. Never guess emails or use personal addresses." : "2. (Contact emails not needed for this task.)",
       "3. Optional: submit_facts for useful sourced facts (online booking yes/no, contact form, services, years in business, number of locations, photos).",
       "4. Call report_progress every few businesses with a short status line.",
       `5. When you have ${p.count} businesses or can't find more, call complete_task with a 2–3 sentence summary.`,

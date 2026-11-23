@@ -190,7 +190,7 @@ function NewTask({ selectedLeads, onCreated }: { selectedLeads: string[]; onCrea
   const toast = useToast();
   const router = useRouter();
   const [tab, setTab] = useState<"find" | "research">(selectedLeads.length ? "research" : "find");
-  const [f, setF] = useState({ locations: "", types: "", count: "10", websiteFilter: "none_or_weak", smallOnly: true, findContacts: true, notes: "" });
+  const [f, setF] = useState({ locations: "", types: "", count: "10", websiteFilter: "none_or_weak", contact: "email_and_phone", smallOnly: true, findContacts: true, notes: "" });
   const [r, setR] = useState({ pickBest: "5", emails: "none", focus: "" });
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<ClaudeTask | null>(null);
@@ -200,7 +200,7 @@ function NewTask({ selectedLeads, onCreated }: { selectedLeads: string[]; onCrea
     e.preventDefault();
     const body =
       tab === "find"
-        ? { type: "FIND_LEADS", params: { locations: split(f.locations, /\n|;/), businessTypes: split(f.types, /,|\n/), count: Number(f.count), websiteFilter: f.websiteFilter, smallOnly: f.smallOnly, findContacts: f.findContacts, notes: f.notes } }
+        ? { type: "FIND_LEADS", params: { locations: split(f.locations, /\n|;/), businessTypes: split(f.types, /,|\n/), count: Number(f.count), websiteFilter: f.websiteFilter, contact: f.contact, smallOnly: f.smallOnly, findContacts: f.findContacts, notes: f.notes } }
         : { type: "RESEARCH_LEADS", params: { businessIds: selectedLeads, pickBest: selectedLeads.length ? 0 : Number(r.pickBest), emails: r.emails, focus: r.focus } };
     if (tab === "find" && (!body.params.locations?.length || !(body.params as { businessTypes: string[] }).businessTypes.length)) return toast.error("Add at least one location and one type of business");
     setBusy(true);
@@ -237,9 +237,16 @@ function NewTask({ selectedLeads, onCreated }: { selectedLeads: string[]; onCrea
           <form onSubmit={submit} className="mt-4 grid gap-4 sm:grid-cols-2">
             {tab === "find" ? (
               <>
-                <Field label="Where" htmlFor="ct-loc" hint="One per line — cities, provinces or countries" className="sm:col-span-1"><Textarea id="ct-loc" rows={3} value={f.locations} onChange={(e) => setF({ ...f, locations: e.target.value })} placeholder={"Mississauga, ON\nOakville, ON"} /></Field>
-                <Field label="Types of business" htmlFor="ct-types" hint="Separate with commas" className="sm:col-span-1"><Textarea id="ct-types" rows={3} value={f.types} onChange={(e) => setF({ ...f, types: e.target.value })} placeholder="restaurants, bakeries, hair salons" /></Field>
-                <Field label="How many" htmlFor="ct-count" hint="Up to 50 per task"><Input id="ct-count" type="number" min={1} max={50} value={f.count} onChange={(e) => setF({ ...f, count: e.target.value })} /></Field>
+                <Field label="Where" htmlFor="ct-loc" hint="One per line — cities, provinces or countries. Type ANY for anywhere in Canada" className="sm:col-span-1"><Textarea id="ct-loc" rows={3} value={f.locations} onChange={(e) => setF({ ...f, locations: e.target.value })} placeholder={"Mississauga, ON\nOakville, ON"} /></Field>
+                <Field label="Types of business" htmlFor="ct-types" hint="Separate with commas. Type ANY for every kind" className="sm:col-span-1"><Textarea id="ct-types" rows={3} value={f.types} onChange={(e) => setF({ ...f, types: e.target.value })} placeholder="restaurants, bakeries, hair salons" /></Field>
+                <Field label="How many" htmlFor="ct-count" hint="Any number up to 1,000 — Claude keeps going until it has this many"><Input id="ct-count" type="number" min={1} max={1000} value={f.count} onChange={(e) => setF({ ...f, count: e.target.value })} /></Field>
+                <Field label="Contact required" htmlFor="ct-contact">
+                  <Select id="ct-contact" value={f.contact} onChange={(e) => setF({ ...f, contact: e.target.value })}>
+                    <option value="email_and_phone">Email and phone (only fully contactable leads)</option>
+                    <option value="email_or_phone">Email or phone (email preferred)</option>
+                    <option value="any">Not required</option>
+                  </Select>
+                </Field>
                 <Field label="Websites" htmlFor="ct-web">
                   <Select id="ct-web" value={f.websiteFilter} onChange={(e) => setF({ ...f, websiteFilter: e.target.value })}>
                     <option value="none_or_weak">No website or a weak one (best leads)</option>

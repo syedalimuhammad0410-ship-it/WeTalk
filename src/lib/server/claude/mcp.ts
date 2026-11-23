@@ -104,7 +104,7 @@ export const TOOLS: ToolDef[] = [
   tool({
     name: "submit_businesses",
     title: "Add businesses to WebScout",
-    description: "Add up to 10 businesses you found to the user's CRM. Each needs a name, a city or street address and at least one source URL where you saw it; include phone, website, category, description, services, Google Maps URL and coordinates when you saw them. Never guess. Duplicates are detected automatically; the reply lists added, duplicate and rejected businesses (with reasons).",
+    description: "Add up to 10 businesses you found to the user's CRM. Each needs a name, a city or street address and at least one source URL where you saw it; include phone, website, category, description, services, Google Maps URL and coordinates when you saw them. Include a published business email with email + email_source_url (the exact page where it appears; WebScout opens it to confirm). Tasks can require a phone and/or email — businesses missing them are rejected. Never guess. Duplicates are detected automatically; the reply lists added, duplicate and rejected businesses (with reasons).",
     schema: z.object({ task_id: taskId.optional(), idempotency_key: idemKey, businesses: z.array(BusinessItem).min(1).max(10) }),
     run: async (a, { conn }) => {
       const task = await taskForWrite(conn, a.task_id);
