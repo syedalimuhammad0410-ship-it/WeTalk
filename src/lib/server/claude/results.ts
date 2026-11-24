@@ -129,6 +129,7 @@ export async function submitBusinesses(c: Ctx, items: BusinessItemT[]) {
   const duplicates: { business_id: string; name: string; reason: string }[] = [];
   const rejected: { name: string; reason: string }[] = [];
   const toAudit: string[] = [];
+  const needEmail: string[] = [];
 
   const rule = params?.contact ?? "any";
   const pages: PageCache = new Map();
@@ -199,7 +200,10 @@ export async function submitBusinesses(c: Ctx, items: BusinessItemT[]) {
     if (r.created) {
       remaining -= 1;
       added.push({ business_id: r.business.id, name: r.business.name, city: r.business.city, geocoded });
-      if (r.business.website) toAudit.push(r.business.id);
+      if (r.business.website) {
+        toAudit.push(r.business.id);
+        if (!emailPage) needEmail.push(r.business.id); // arrived with a confirmed email: no need to search for one
+      }
       await addEvent({ workspaceId: ws, id: c.task?.id }, "BUSINESS_CREATED", `Found ${r.business.name}${where(r.business) ? ` (${where(r.business)})` : ""}`, { businessId: r.business.id, data: { lat, lng } });
     } else {
       duplicates.push({ business_id: r.business.id, name: r.business.name, reason: r.duplicateReason ?? "already in the CRM" });
@@ -217,8 +221,9 @@ export async function submitBusinesses(c: Ctx, items: BusinessItemT[]) {
 
   if (toAudit.length) {
     await enqueueJob({ workspaceId: ws, type: "WEBSITE_AUDIT", label: `Audit ${toAudit.length} website(s) found by Claude`, payload: { businessIds: toAudit }, createdById: actor(c) });
-    if (params?.findContacts !== false) await enqueueJob({ workspaceId: ws, type: "CONTACT_DISCOVERY", label: `Find public emails for ${toAudit.length} business(es) found by Claude`, payload: { businessIds: toAudit }, createdById: actor(c) });
-    await addEvent({ workspaceId: ws, id: c.task?.id }, "AUDITS_QUEUED", `Website audit${params?.findContacts !== false ? " and email check" : ""} queued for ${toAudit.length} business${toAudit.length === 1 ? "" : "es"}`);
+    const findEmails = params?.findContacts !== false && needEmail.length > 0;
+    if (findEmails) await enqueueJob({ workspaceId: ws, type: "CONTACT_DISCOVERY", label: `Find public emails for ${needEmail.length} business(es) found by Claude`, payload: { businessIds: needEmail }, createdById: actor(c) });
+    await addEvent({ workspaceId: ws, id: c.task?.id }, "AUDITS_QUEUED", `Website audit${findEmails ? " and email check" : ""} queued for ${toAudit.length} business${toAudit.length === 1 ? "" : "es"}`);
   }
   let progress: { found_so_far: number; target: number | "no limit" } | null = null;
   if (c.task) {
