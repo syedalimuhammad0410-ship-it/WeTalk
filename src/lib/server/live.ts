@@ -2,7 +2,7 @@ import "./guard";
 import type { Prisma } from "@prisma/client";
 import { db } from "../db";
 import { AppError } from "./errors";
-import { ACTIVE, DONE, controlTask, shortId, taskBusinessIds, type TaskStats } from "./claude/tasks";
+import { ACTIVE, DONE, controlTask, isAny, shortId, taskBusinessIds, type TaskStats } from "./claude/tasks";
 import { controlDiscoveryRun, zoneSummary } from "./discovery/run";
 import { resolveAreaWithOsm } from "./discovery/geo";
 import { MAP_POINT_SELECT, toPoint } from "./map";
@@ -44,7 +44,8 @@ async function claudeState(workspaceId: string, id: string) {
   const points = await pointsWithSummaries(rows);
   const params = task.parameters as { area?: Area; locations?: string[] };
   let area = params.area ?? null;
-  if (!area && task.type === "FIND_LEADS" && params.locations?.[0]) {
+  // "ANY" / "UNLIMITED" is not a place: let the map frame the businesses as they arrive instead of geocoding the word.
+  if (!area && task.type === "FIND_LEADS" && params.locations?.[0] && !isAny(params.locations[0])) {
     // Centre the map on the search area the first time the live view opens.
     try {
       const a = await resolveAreaWithOsm(params.locations[0]);

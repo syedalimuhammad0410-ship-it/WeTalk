@@ -19,7 +19,7 @@ export const GLOBAL_PAUSE = "Paused: all automation";
 const names = z.array(z.string().trim().min(2).max(120)).min(1).max(10);
 
 /** "ANY" / "anywhere" / "all" in a location or type field means no restriction. */
-export const isAny = (v: string) => /^(any|anywhere|all|everywhere|any business(es)?|all businesses)$/i.test(v.trim());
+export const isAny = (v: string) => /^(any|anywhere|all|everywhere|unlimited|no limit|any business(es)?|all businesses|any type|all types)$/i.test(v.trim());
 
 export const FindLeadsParams = z.object({
   locations: names,
