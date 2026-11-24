@@ -24,7 +24,9 @@ export const isAny = (v: string) => /^(any|anywhere|all|everywhere|any business(
 export const FindLeadsParams = z.object({
   locations: names,
   businessTypes: names,
-  count: z.coerce.number().int().min(1).max(1000).default(10),
+  count: z.coerce.number().int().min(1).max(100000).default(10),
+  /** No target: keep finding businesses until Claude runs out. */
+  unlimited: z.boolean().default(false),
   /** What a lead must have before WebScout accepts it. */
   contact: z.enum(["email_and_phone", "email_or_phone", "any"]).default("email_and_phone"),
   /** none = no website of their own; none_or_weak = no website or a weak/outdated one; any = no filter */
@@ -69,7 +71,7 @@ export async function createTask(workspaceId: string, userId: string, input: Cre
     const p = input.params;
     const types = p.businessTypes.every(isAny) ? "businesses" : p.businessTypes.join(", ");
     const places = p.locations.every(isAny) ? "anywhere in Canada" : `in ${p.locations.join("; ")}`;
-    title = `Find ${p.count} ${types} ${places}${p.contact === "email_and_phone" ? " (email + phone)" : p.contact === "email_or_phone" ? " (email or phone)" : ""}`;
+    title = `Find ${p.unlimited ? "as many" : p.count} ${types} ${p.unlimited ? `as possible ${places}` : places}${p.contact === "email_and_phone" ? " (email + phone)" : p.contact === "email_or_phone" ? " (email or phone)" : ""}`;
     params = p;
   } else {
     const p = input.params;
@@ -248,7 +250,10 @@ export async function taskBrief(task: ClaudeTask) {
           ? "CONTACT REQUIRED: every business needs a phone number or a published business email (email preferred — include email + email_source_url in submit_businesses when you find one). Businesses with neither are rejected."
           : "";
     lines.push(
-      `GOAL: Find ${p.count} real, currently operating ${p.businessTypes.every(isAny) ? "businesses of any kind" : p.businessTypes.join(" / ")} ${anywhere ? "anywhere in Canada" : `in ${p.locations.join("; ")}`} that would benefit from the agency's services. Keep going until you have ${p.count} accepted businesses.`,
+      p.unlimited
+        ? `GOAL: Find as many real, currently operating ${p.businessTypes.every(isAny) ? "businesses of any kind" : p.businessTypes.join(" / ")} ${anywhere ? "anywhere in Canada" : `in ${p.locations.join("; ")}`} as you can — there is NO limit. Work through many cities, neighbourhoods and kinds of business, and keep going until you genuinely run out.`
+        : `GOAL: Find ${p.count} real, currently operating ${p.businessTypes.every(isAny) ? "businesses of any kind" : p.businessTypes.join(" / ")} ${anywhere ? "anywhere in Canada" : `in ${p.locations.join("; ")}`} that would benefit from the agency's services. Keep going until you have ${p.count} accepted businesses.`,
+      "DESCRIPTION: give every business a one- or two-sentence description of what it actually does, taken from its own website or listing (not just its category).",
       anywhere ? `No location limit: start close to the agency (${home}) and the surrounding area (Toronto/GTA, Mississauga, Milton, Hamilton), then widen across Ontario and the rest of Canada.` : "",
       contactRule,
       p.websiteFilter === "none" ? "Only businesses with NO website of their own (a Facebook/Instagram page or directory listing alone is fine)." : p.websiteFilter === "none_or_weak" ? "Prefer businesses with no website or a weak one (outdated, broken, not mobile-friendly, no online booking or contact form). WebScout audits every website automatically." : "Any website status is fine.",
@@ -262,7 +267,7 @@ export async function taskBrief(task: ClaudeTask) {
       p.contact !== "any" || p.findContacts ? "2. Business emails: include them in submit_businesses (email + email_source_url = the exact page where it is published), or add them later with submit_contacts. WebScout opens the page to confirm the address. Never guess emails or use personal addresses." : "2. (Contact emails not needed for this task.)",
       "3. Optional: submit_facts for useful sourced facts (online booking yes/no, contact form, services, years in business, number of locations, photos).",
       "4. Call report_progress every few businesses with a short status line.",
-      `5. When you have ${p.count} businesses or can't find more, call complete_task with a 2–3 sentence summary.`,
+      p.unlimited ? "5. There is no target: when you can't find any more, call complete_task with a 2–3 sentence summary." : `5. When you have ${p.count} businesses or can't find more, call complete_task with a 2–3 sentence summary.`,
       "",
       `Plan allowance: ${left} new leads left this month.`,
     );

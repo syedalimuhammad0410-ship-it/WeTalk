@@ -220,11 +220,15 @@ export async function submitBusinesses(c: Ctx, items: BusinessItemT[]) {
     if (params?.findContacts !== false) await enqueueJob({ workspaceId: ws, type: "CONTACT_DISCOVERY", label: `Find public emails for ${toAudit.length} business(es) found by Claude`, payload: { businessIds: toAudit }, createdById: actor(c) });
     await addEvent({ workspaceId: ws, id: c.task?.id }, "AUDITS_QUEUED", `Website audit${params?.findContacts !== false ? " and email check" : ""} queued for ${toAudit.length} business${toAudit.length === 1 ? "" : "es"}`);
   }
-  let progress: { found_so_far: number; target: number } | null = null;
+  let progress: { found_so_far: number; target: number | "no limit" } | null = null;
   if (c.task) {
     const s = await bumpStats(c.task.id, { submitted: items.length, created: added.length, duplicates: duplicates.length, rejected: rejected.length, ...(contactsVerified ? { contactsVerified } : {}) });
-    const target = params?.count ?? 0;
-    if (target) {
+    const target = params?.unlimited ? 0 : params?.count ?? 0;
+    if (params?.unlimited) {
+      const found = s.created ?? 0;
+      progress = { found_so_far: found, target: "no limit" };
+      await db.claudeTask.update({ where: { id: c.task.id }, data: { progress: Math.min(95, Math.round((100 * found) / (found + 100))), progressMessage: `${found} businesses found — no limit, still searching` } });
+    } else if (target) {
       progress = { found_so_far: s.created ?? 0, target };
       await db.claudeTask.update({ where: { id: c.task.id }, data: { progress: Math.min(95, Math.round(((s.created ?? 0) / target) * 100)), progressMessage: (s.created ?? 0) >= target ? `${s.created} businesses found — target of ${target} reached` : `${s.created ?? 0} of ${target} businesses found` } });
     }

@@ -174,6 +174,25 @@ describe("Claude bridge (MCP connector)", () => {
     expect(r.task_progress).toEqual({ found_so_far: 1, target: 250 });
   });
 
+  it("runs a no-limit task that accepts a phone OR an email", async () => {
+    const { ws, owner } = await makeWorkspace();
+    const { token } = await createConnection(ws.id, owner.id, "Claude Desktop");
+    const c = client(token);
+    const task = await createTask(ws.id, owner.id, CreateTaskInput.parse({ type: "FIND_LEADS", params: { locations: ["ANY"], businessTypes: ["ANY"], count: 100000, unlimited: true, contact: "email_or_phone", websiteFilter: "any" } }));
+    expect(task.title).toBe("Find as many businesses as possible anywhere in Canada (email or phone)");
+    const next = (await c.call("get_next_task")).data;
+    expect(next.brief).toContain("NO limit");
+    expect(next.brief).toContain("description of what it actually does");
+    const r = (await c.call("submit_businesses", { task_id: task.id, idempotency_key: "nl-1", businesses: [
+      bakery("Phone Only Bakery", { phone: "416-555-0181", description: "Sourdough and pastries baked daily" }),
+      bakery("No Contact Bakery"),
+    ] })).data;
+    expect(r.added.map((a: { name: string }) => a.name)).toEqual(["Phone Only Bakery"]);
+    expect(r.rejected[0].reason).toMatch(/phone number or a published email/);
+    expect(r.task_progress).toEqual({ found_so_far: 1, target: "no limit" });
+    expect((await db.claudeTask.findUniqueOrThrow({ where: { id: task.id } })).progressMessage).toContain("no limit");
+  });
+
   it("keeps workspaces apart and enforces the plan's lead allowance", async () => {
     const a = await makeWorkspace();
     const b = await makeWorkspace();
