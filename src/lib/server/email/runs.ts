@@ -226,7 +226,7 @@ export async function runEmailRunSlice(runId: string, jobId?: string) {
       const wait = last?.finishedAt ? last.finishedAt.getTime() + gap - Date.now() : 0;
       if (wait > 1000) {
         const at = new Date(Date.now() + wait);
-        await db.emailRun.update({ where: { id: runId }, data: { nextSendAt: at, message: `Next email at ${at.toLocaleTimeString("en-CA", { timeZone: "America/Toronto", hour: "numeric", minute: "2-digit" })}: ${item.business.name}. Emails are spread across the day.` } });
+        await db.emailRun.update({ where: { id: runId }, data: { nextSendAt: at, message: `Next email at ${at.toLocaleTimeString("en-US", { timeZone: "America/Toronto", hour: "numeric", minute: "2-digit" })}: ${item.business.name}. Emails are spread across the day.` } });
         await enqueueRunJob(run, at, jobId);
         return { message: "Waiting to spread emails out" };
       }
