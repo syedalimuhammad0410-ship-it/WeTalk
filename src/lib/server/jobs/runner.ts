@@ -2,6 +2,7 @@ import "../guard";
 import type { Job, Prisma } from "@prisma/client";
 import { db } from "../../db";
 import { describeError } from "../errors";
+import { decryptSecret } from "../crypto";
 import { syncDuePayPalSubscriptions } from "../billing";
 import { claimNextJob, makeContext, recoverStaleJobs } from "./queue";
 
@@ -88,6 +89,33 @@ async function resumeOrphanedRuns() {
   }
 }
 
+let keyCheck: { at: number; ok: boolean } | null = null;
+/**
+ * A copy of WebScout running with a different APP_ENCRYPTION_KEY (e.g. a second deployment left pointing at
+ * this database) can't use the stored Gmail and API credentials: every inbox check and send it picks up fails,
+ * and the daily schedule's emails would stall. Such a server takes no jobs. Judged against the most recently
+ * saved credentials (any one that decrypts is enough); rechecked every 10 minutes.
+ */
+export async function canReadStoredSecrets() {
+  if (keyCheck && Date.now() - keyCheck.at < 10 * 60_000) return keyCheck.ok;
+  const accounts = await db.emailAccount.findMany({ where: { OR: [{ refreshTokenEncrypted: { not: null } }, { apiTokenEncrypted: { not: null } }] }, orderBy: { updatedAt: "desc" }, take: 3, select: { refreshTokenEncrypted: true, apiTokenEncrypted: true } });
+  const samples = accounts.map((a) => (a.refreshTokenEncrypted ?? a.apiTokenEncrypted)!);
+  if (!samples.length) samples.push(...(await db.integrationCredential.findMany({ orderBy: { updatedAt: "desc" }, take: 3, select: { secretEncrypted: true } })).map((c) => c.secretEncrypted));
+  let ok = samples.length === 0;
+  for (const s of samples) {
+    try {
+      decryptSecret(s);
+      ok = true;
+      break;
+    } catch {
+      /* try the next one */
+    }
+  }
+  if (!ok && keyCheck?.ok !== false) console.error("[jobs] This server's APP_ENCRYPTION_KEY can't read the stored credentials, so it won't run background jobs. Use the same key as the main deployment, or turn this one off.");
+  keyCheck = { at: Date.now(), ok };
+  return ok;
+}
+
 let lastTick = 0;
 /** Periodic maintenance: enqueue inbox sync + follow-up dispatch, recover stale jobs. */
 async function maintenance(force = false) {
@@ -104,6 +132,12 @@ async function maintenance(force = false) {
       const pending = await db.job.findFirst({ where: { workspaceId: w.id, type: "EMAIL_SYNC", status: { in: ["QUEUED", "RUNNING"] } } });
       if (!pending) await db.job.create({ data: { workspaceId: w.id, type: "EMAIL_SYNC", label: "Check inbox" } });
     }
+    // The daily email schedule: make sure its next check is queued (it re-queues itself; this is the safety net).
+    const schedule = await db.emailSchedule.findFirst({ where: { workspaceId: w.id, enabled: true }, select: { nextAt: true, createdById: true } });
+    if (schedule) {
+      const pending = await db.job.findFirst({ where: { workspaceId: w.id, type: "EMAIL_SCHEDULE", status: { in: ["QUEUED", "RUNNING"] } }, select: { id: true } });
+      if (!pending) await db.job.create({ data: { workspaceId: w.id, type: "EMAIL_SCHEDULE", label: "Daily email schedule", runAfter: schedule.nextAt && schedule.nextAt > new Date() ? schedule.nextAt : new Date(), createdById: schedule.createdById, maxAttempts: 3 } });
+    }
     if (w.automation?.followUpSchedulingEnabled === false) continue;
     const due = await db.followUp.findFirst({ where: { workspaceId: w.id, status: "SCHEDULED", scheduledFor: { lte: new Date() } }, select: { id: true } });
     if (due) {
@@ -119,9 +153,11 @@ export async function runnerLoop(opts: { once?: boolean } = {}) {
   try {
     for (;;) {
       try {
-        await maintenance();
-        while (active < CONCURRENCY && (await runOne())) {
-          /* claim until saturated */
+        if (await canReadStoredSecrets()) {
+          await maintenance();
+          while (active < CONCURRENCY && (await runOne())) {
+            /* claim until saturated */
+          }
         }
       } catch (e) {
         console.error("[jobs] runner error", e);
@@ -152,6 +188,7 @@ export function startInlineRunner() {
  */
 export async function runScheduledTick(opts: { claimWindowMs?: number } = {}) {
   const claimUntil = Date.now() + (opts.claimWindowMs ?? 50_000);
+  if (!(await canReadStoredSecrets())) return { ran: 0, skipped: "This server's APP_ENCRYPTION_KEY can't read the stored credentials, so it runs no jobs." };
   await maintenance(true);
   let ran = 0;
   const lane = async () => {

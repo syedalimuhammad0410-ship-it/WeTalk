@@ -84,6 +84,7 @@ enum JobType {
   AUTOPROSPECT
   CONTACT_DISCOVERY
   EMAIL_RUN
+  EMAIL_SCHEDULE
 }
 
 enum JobStatus {
@@ -284,6 +285,7 @@ model Workspace {
   claudeConnections ClaudeConnection[]
   claudeTasks       ClaudeTask[]
   emailRuns         EmailRun[]
+  emailSchedule     EmailSchedule?
   claudeTaskEvents  ClaudeTaskEvent[]
   claudeSubmissions ClaudeSubmission[]
   businessEvidence  BusinessEvidence[]
@@ -1322,6 +1324,10 @@ model EmailRun {
   failed             Int            @default(0)
   message            String?
   nextSendAt         DateTime?
+  /// Seconds to wait between emails (the schedule spreads a day's batch across its sending window).
+  gapSeconds         Int            @default(0)
+  /// Started by the daily schedule rather than by hand.
+  scheduled          Boolean        @default(false)
   createdById        String?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
@@ -1330,6 +1336,37 @@ model EmailRun {
   items              EmailRunItem[]
 
   @@index([workspaceId, createdAt])
+}
+
+/// The daily schedule (Emails → Schedule): email N cleared leads a day, and when the pool runs low,
+/// spend a set time searching for new leads (an AutoProspect run), forever.
+model EmailSchedule {
+  id              String    @id @default(cuid())
+  workspaceId     String    @unique
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  enabled         Boolean   @default(false)
+  perDay          Int       @default(40)
+  /// Sending window, Toronto time ("HH:MM"). A day's batch is spread evenly across it.
+  startTime       String    @default("09:30")
+  endTime         String    @default("16:30")
+  weekdaysOnly    Boolean   @default(false)
+  /// Lead search: minutes per search, and where / what to look for.
+  searchMinutes   Int       @default(30)
+  locations       String[]
+  categories      String[]
+  /// Most data-provider requests one search may use (Google Places requests cost money past the free tier).
+  maxRequests     Int       @default(40)
+  /// Toronto dates (YYYY-MM-DD) of the last batch and the last search.
+  lastBatchDay    String?
+  lastSearchDay   String?
+  lastRunId       String?
+  searchRunId     String?
+  searchStartedAt DateTime?
+  message         String?
+  nextAt          DateTime?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 model EmailRunItem {

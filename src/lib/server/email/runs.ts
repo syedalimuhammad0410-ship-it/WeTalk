@@ -126,7 +126,8 @@ export const CreateEmailRunInput = z.object({
 
 const OPEN = ["QUEUED", "RUNNING", "PAUSED"];
 
-export async function createEmailRun(workspaceId: string, userId: string | null, input: z.infer<typeof CreateEmailRunInput>) {
+/** `extra.gapSeconds` spaces the emails out; `extra.scheduled` marks a run started by the daily schedule. */
+export async function createEmailRun(workspaceId: string, userId: string | null, input: z.infer<typeof CreateEmailRunInput>, extra: { gapSeconds?: number; scheduled?: boolean } = {}) {
   const { blockers } = await emailSetup(workspaceId);
   if (blockers.length) throw new AppError("NOT_CONFIGURED", `${blockers.map((b) => b.title).join(" and ")} first — then start the run.`);
   const open = await db.emailRun.findFirst({ where: { workspaceId, status: { in: OPEN } }, select: { id: true, name: true, status: true } });
@@ -155,6 +156,7 @@ export async function createEmailRun(workspaceId: string, userId: string | null,
   const run = await db.emailRun.create({
     data: {
       workspaceId, name, filters: (input.filters ?? {}) as object, useAi: input.useAi, includeNeedsReview: input.includeNeedsReview, total: picked.length, createdById: userId, message: "Starting…",
+      gapSeconds: Math.max(0, Math.round(extra.gapSeconds ?? 0)), scheduled: Boolean(extra.scheduled),
       items: { create: picked.map((l, i) => ({ businessId: l.id, email: l.email, position: i })) },
     },
   });
@@ -217,6 +219,18 @@ export async function runEmailRunSlice(runId: string, jobId?: string) {
     if (now?.status !== "RUNNING") return { message: `Run ${now?.status.toLowerCase() ?? "deleted"}` };
     const item = await db.emailRunItem.findFirst({ where: { runId, status: "PENDING" }, orderBy: { position: "asc" }, include: { business: { select: { name: true } } } });
     if (!item) return finishRun(run.id, "COMPLETED");
+    // Spread out (the daily schedule): wait the run's gap after the last email, ±20% so it doesn't look machine-timed.
+    if (run.gapSeconds > 0) {
+      const last = await db.emailRunItem.findFirst({ where: { runId, status: "SENT" }, orderBy: { finishedAt: "desc" }, select: { finishedAt: true } });
+      const gap = run.gapSeconds * 1000 * (0.8 + ((item.position * 7919) % 41) / 100);
+      const wait = last?.finishedAt ? last.finishedAt.getTime() + gap - Date.now() : 0;
+      if (wait > 1000) {
+        const at = new Date(Date.now() + wait);
+        await db.emailRun.update({ where: { id: runId }, data: { nextSendAt: at, message: `Next email at ${at.toLocaleTimeString("en-CA", { timeZone: "America/Toronto", hour: "numeric", minute: "2-digit" })}: ${item.business.name}. Emails are spread across the day.` } });
+        await enqueueRunJob(run, at, jobId);
+        return { message: "Waiting to spread emails out" };
+      }
+    }
     const slot = await nextSendSlot(run.workspaceId);
     if (slot.ms > 0) {
       const at = new Date(Date.now() + slot.ms);

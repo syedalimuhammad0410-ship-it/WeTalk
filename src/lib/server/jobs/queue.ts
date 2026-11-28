@@ -29,7 +29,7 @@ export async function claimNextJob(): Promise<Job | null> {
       SELECT "id" FROM "Job"
       WHERE "status" = 'QUEUED' AND "runAfter" <= NOW()
       -- Time-sensitive work (inbox, replies, email runs, follow-ups) goes ahead of bulk audits and searches.
-      ORDER BY ("type" IN ('EMAIL_SYNC', 'INBOUND_ANALYSIS', 'EMAIL_RUN', 'FOLLOW_UP_DISPATCH')) DESC, "createdAt" ASC
+      ORDER BY ("type" IN ('EMAIL_SYNC', 'INBOUND_ANALYSIS', 'EMAIL_RUN', 'EMAIL_SCHEDULE', 'FOLLOW_UP_DISPATCH')) DESC, "createdAt" ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     )

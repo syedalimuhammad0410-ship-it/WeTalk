@@ -57,11 +57,13 @@ export function estimateCost(i: Pick<AutoProspectInputT, "maxRequests" | "budget
   return { requests: req, cents: Math.round(cents) };
 }
 
-export async function createAutoProspect(workspaceId: string, userId: string, input: AutoProspectInputT) {
+/** `opts.campaignId` files the run under an existing campaign (the daily schedule keeps all its searches in one). */
+export async function createAutoProspect(workspaceId: string, userId: string, input: AutoProspectInputT, opts: { campaignId?: string } = {}) {
   const { automation } = await getSettings(workspaceId);
   if (automation.automationPaused) throw new AppError("VALIDATION", "All automation is paused. Resume it in Settings → Automation Control Center first.");
   if (input.templateId && !(await db.emailTemplate.findFirst({ where: { id: input.templateId, workspaceId, kind: "OUTREACH" }, select: { id: true } }))) throw new AppError("VALIDATION", "That email template no longer exists.");
-  const campaign = await db.campaign.create({
+  const existing = opts.campaignId ? await db.campaign.findFirst({ where: { id: opts.campaignId, workspaceId } }) : null;
+  const campaign = existing ?? await db.campaign.create({
     data: {
       workspaceId, name: input.name, status: "ACTIVE", templateId: input.templateId ?? null,
       description: `AutoProspect: ${input.categories.join(", ")} in ${input.locations.join("; ")}`,
