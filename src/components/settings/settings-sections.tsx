@@ -375,7 +375,7 @@ function EmailSettings({ d }: { d: D }) {
             <a href="/api/auth/google?purpose=gmail" className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border p-3 text-sm font-medium transition-colors hover:border-faint hover:bg-subtle">
               <Plus className="h-4 w-4" /> {gmailCount ? "Connect another Gmail" : "Connect Gmail"} <span className="font-normal text-muted">({gmailCount} of {max})</span>
             </a>
-            <p className="mt-2 text-xs text-muted">Google asks which account to use: pick the Gmail you want to add. If Google says the app is blocked, add that address under Test users on your app&apos;s Google Cloud OAuth consent screen.</p>
+            <p className="mt-2 text-xs leading-relaxed text-muted">Google asks which account to use: pick the Gmail you want to add. If Google says “Access blocked … the app is currently being tested”, open <a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noreferrer" className="font-medium text-fg underline">Google Cloud → Audience</a> (signed in as the account that owns WebScout&apos;s Google project) and either add that Gmail under <span className="font-medium">Test users</span>, or press <span className="font-medium">Publish app</span> so any of your Gmail accounts can connect.</p>
           </div>
         ) : (
           <p className="rounded-xl border border-dashed border-border p-3 text-center text-sm text-muted">{max} of {max} Gmail accounts linked. Disconnect one to add another.</p>

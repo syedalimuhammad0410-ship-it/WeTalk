@@ -14,7 +14,9 @@ export async function GET(req: NextRequest) {
   let purpose: "signin" | "gmail" = "signin";
   try {
     purpose = await verifyState(url.searchParams.get("state"));
-    if (url.searchParams.get("error")) throw new Error(`Google returned: ${url.searchParams.get("error")}`);
+    const googleError = url.searchParams.get("error");
+    if (googleError === "access_denied") throw new Error("Google didn't allow the connection. If Google said the app is “being tested”, add this Gmail under Test users in Google Cloud → Audience (or press Publish app there), then try again.");
+    if (googleError) throw new Error(`Google returned: ${googleError}`);
     const code = url.searchParams.get("code");
     if (!code) throw new Error("Missing authorization code.");
     const { tokens, profile } = await exchangeCode(code);
