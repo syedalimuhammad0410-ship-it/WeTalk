@@ -98,7 +98,8 @@ export async function emailSetup(workspaceId: string) {
   else if (!pool.length) blockers.push({ code: "NO_SENDING_INBOX", title: "Turn on sending for an inbox", detail: "Every connected inbox has “Send new emails” switched off.", href: "/settings/email" });
   else if (!healthy.length) {
     const a = pool[0]!.account;
-    blockers.push({ code: "ACCOUNT_ERROR", title: `Reconnect ${a.emailAddress}`, detail: a.lastError ? `Gmail stopped accepting WebScout's connection: ${a.lastError}` : "Gmail stopped accepting WebScout's connection.", href: "/settings/email" });
+    if (pool.length > 1) blockers.push({ code: "ACCOUNT_ERROR", title: "Reconnect your inboxes", detail: `Gmail stopped accepting WebScout's connection for ${pool.map((i) => i.account.emailAddress).join(", ")}.`, href: "/settings/email" });
+    else blockers.push({ code: "ACCOUNT_ERROR", title: `Reconnect ${a.emailAddress}`, detail: a.lastError ? `Gmail stopped accepting WebScout's connection: ${a.lastError}` : "Gmail stopped accepting WebScout's connection.", href: "/settings/email" });
   }
   // A broken inbox is skipped while the others keep sending.
   for (const i of list) if (healthy.length && i.account.status === "ERROR") warnings.push({ code: "ACCOUNT_ERROR", title: `Reconnect ${i.account.emailAddress}`, detail: "It's skipped until you reconnect it; your other inboxes keep sending.", href: "/settings/email" });
