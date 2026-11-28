@@ -9,7 +9,8 @@ const STATE_COOKIE = "ws_oauth_state";
 
 export type OAuthPurpose = "signin" | "gmail";
 
-export async function googleAuthUrl(purpose: OAuthPurpose) {
+/** `loginHint` pre-selects the Google account (reconnecting one inbox); otherwise Google lets you pick any account. */
+export async function googleAuthUrl(purpose: OAuthPurpose, opts: { loginHint?: string } = {}) {
   if (!env.googleOAuthConfigured()) throw new AppError("NOT_CONFIGURED", "Google OAuth is not configured on this server (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).");
   const nonce = randomToken(24);
   const state = `${purpose}.${nonce}`;
@@ -20,7 +21,9 @@ export async function googleAuthUrl(purpose: OAuthPurpose) {
     response_type: "code",
     scope: purpose === "gmail" ? GMAIL_SCOPES.join(" ") : "openid email profile",
     state,
-    ...(purpose === "gmail" ? { access_type: "offline", prompt: "consent", include_granted_scopes: "true" } : { prompt: "select_account" }),
+    // Gmail: always show the account chooser, so another Gmail account can be linked.
+    ...(purpose === "gmail" ? { access_type: "offline", prompt: "select_account consent", include_granted_scopes: "true" } : { prompt: "select_account" }),
+    ...(opts.loginHint ? { login_hint: opts.loginHint } : {}),
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }

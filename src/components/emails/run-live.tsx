@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { RUN_STATUS } from "./composer";
 
 type Biz = { id: string; name: string; category: string | null; city: string | null; website?: string | null; phone?: string | null };
-type LightItem = { id: string; position: number; status: string; email: string; subject: string | null; error: string | null; writer: string | null; finishedAt: string | null; business: Biz; replied?: string | null };
+type LightItem = { id: string; position: number; status: string; email: string; subject: string | null; error: string | null; writer: string | null; finishedAt: string | null; business: Biz; replied?: string | null; from?: string | null };
 type FullItem = LightItem & { prompt: string | null; body: string | null; startedAt: string | null };
 export type RunState = {
   run: { id: string; name: string; status: string; total: number; sent: number; skipped: number; failed: number; left: number; replied?: number; message: string | null; nextSendAt: string | null; writer: string | null; instructions: string | null; useAi: boolean; createdAt: string; startedAt: string | null; finishedAt: string | null };
@@ -257,6 +257,7 @@ export function EmailRunLive({ initial, canControl }: { initial: RunState; canCo
                 {viewing.subject ? (
                   <div className="rounded-lg border border-border">
                     <div className="space-y-1 border-b border-border px-4 py-3 text-xs">
+                      {s.items.find((i) => i.id === viewing.id)?.from && <div><span className="text-faint">From:</span> <span className="font-mono">{s.items.find((i) => i.id === viewing.id)!.from}</span></div>}
                       <div><span className="text-faint">To:</span> <span className="font-mono">{viewing.email}</span></div>
                       <div><span className="text-faint">Subject:</span> <span className="font-medium text-fg">{viewing.subject}</span></div>
                     </div>

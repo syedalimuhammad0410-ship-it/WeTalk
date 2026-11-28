@@ -106,8 +106,10 @@ export async function dispatchDueFollowUps(workspaceId?: string) {
       result.sent++;
     } catch (e) {
       const err = e as AppError;
-      if (err.code === "RATE_LIMITED") {
-        await db.followUp.update({ where: { id: f.id }, data: { scheduledFor: new Date(Date.now() + 15 * 60_000) } });
+      if (err.code === "RATE_LIMITED" || err.code === "QUOTA_EXCEEDED") {
+        // A limit or an inbox resting: try again later (wait as long as the limit says, at least 15 minutes).
+        const retry = (err.details as { retryAfter?: number } | undefined)?.retryAfter ?? 0;
+        await db.followUp.update({ where: { id: f.id }, data: { scheduledFor: new Date(Date.now() + Math.max(15 * 60_000, retry * 1000)) } });
         result.postponed++;
       } else {
         await db.followUp.update({ where: { id: f.id }, data: { status: err.code === "SUPPRESSED" ? "CANCELLED" : "FAILED", cancelReason: describeError(e).slice(0, 300) } });

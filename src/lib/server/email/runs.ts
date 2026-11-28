@@ -9,6 +9,7 @@ import { getSettings } from "../workspace";
 import { enqueueJob } from "../jobs/queue";
 import { generateOutreachDraft, writerLabel } from "./compose";
 import { sendEmail } from "./send";
+import { listInboxes, nextOpening, roomToday, sendingPool, waitText } from "./inboxes";
 import { INTENT_LABEL } from "./replies";
 
 /**
@@ -86,21 +87,29 @@ export async function emailAudience(workspaceId: string): Promise<AudienceLead[]
 
 export type Blocker = { code: string; title: string; detail: string; href: string };
 
-/** What has to be fixed before WebScout may send, plus who sends and who writes. */
+/** What has to be fixed before WebScout may send, plus which inboxes send and who writes. */
 export async function emailSetup(workspaceId: string) {
-  const [settings, account, ai] = await Promise.all([
-    getSettings(workspaceId),
-    db.emailAccount.findFirst({ where: { workspaceId, status: { not: "DISCONNECTED" } }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] }),
-    getAi(workspaceId).catch(() => null),
-  ]);
+  const [settings, list, ai] = await Promise.all([getSettings(workspaceId), listInboxes(workspaceId), getAi(workspaceId).catch(() => null)]);
   const blockers: Blocker[] = [];
-  if (!account) blockers.push({ code: "NO_ACCOUNT", title: "Connect an email account", detail: "WebScout sends from your own Gmail account.", href: "/settings/email" });
-  else if (account.status === "ERROR") blockers.push({ code: "ACCOUNT_ERROR", title: `Reconnect ${account.emailAddress}`, detail: account.lastError ? `Gmail stopped accepting WebScout's connection: ${account.lastError}` : "Gmail stopped accepting WebScout's connection.", href: "/settings/email" });
+  const warnings: Blocker[] = [];
+  const pool = sendingPool(list);
+  const healthy = pool.filter((i) => i.account.status === "CONNECTED");
+  if (!list.length) blockers.push({ code: "NO_ACCOUNT", title: "Connect an email account", detail: "WebScout sends from your own Gmail account.", href: "/settings/email" });
+  else if (!pool.length) blockers.push({ code: "NO_SENDING_INBOX", title: "Turn on sending for an inbox", detail: "Every connected inbox has “Send new emails” switched off.", href: "/settings/email" });
+  else if (!healthy.length) {
+    const a = pool[0]!.account;
+    blockers.push({ code: "ACCOUNT_ERROR", title: `Reconnect ${a.emailAddress}`, detail: a.lastError ? `Gmail stopped accepting WebScout's connection: ${a.lastError}` : "Gmail stopped accepting WebScout's connection.", href: "/settings/email" });
+  }
+  // A broken inbox is skipped while the others keep sending.
+  for (const i of list) if (healthy.length && i.account.status === "ERROR") warnings.push({ code: "ACCOUNT_ERROR", title: `Reconnect ${i.account.emailAddress}`, detail: "It's skipped until you reconnect it; your other inboxes keep sending.", href: "/settings/email" });
   if (!settings.compliance.physicalAddress.trim()) blockers.push({ code: "NO_ADDRESS", title: "Add your mailing address", detail: "Canada's anti-spam law (CASL) requires your mailing address in every sales email.", href: "/settings/compliance" });
   const c = settings.compliance;
   return {
     blockers,
-    sender: account ? account.emailAddress : null,
+    warnings,
+    sender: pool.length === 1 ? pool[0]!.account.emailAddress : pool.length > 1 ? `${pool.length} inboxes, taking turns` : (list[0]?.account.emailAddress ?? null),
+    senders: pool.map((i) => ({ email: i.account.emailAddress, sent: i.sent, cap: i.account.dailyLimit, resting: i.resting })),
+    roomToday: roomToday(pool),
     writer: ai && settings.automation.aiOutreachGeneration ? writerLabel(ai.model) : null,
     limits: { perDay: c.maxEmailsPerDay, perHour: c.maxEmailsPerHour, gapMinutes: c.minMinutesBetweenSends },
   };
@@ -162,7 +171,7 @@ async function enqueueRunJob(run: Pick<EmailRun, "id" | "workspaceId" | "created
   await enqueueJob({ workspaceId: run.workspaceId, type: "EMAIL_RUN", label: "Email run", payload: { runId: run.id }, createdById: run.createdById, runAfter, maxAttempts: 3 });
 }
 
-/** How long until the workspace may send again (spacing, hourly and daily limits), and why. */
+/** How long until the workspace may send again (spacing, hourly and daily limits, every inbox's own cap), and why. */
 export async function nextSendSlot(workspaceId: string): Promise<{ ms: number; reason: string | null }> {
   const { compliance: c } = await getSettings(workspaceId);
   const now = Date.now();
@@ -176,6 +185,12 @@ export async function nextSendSlot(workspaceId: string): Promise<{ ms: number; r
   if (day > 0) return { ms: day, reason: `Daily limit reached (${c.maxEmailsPerDay} a day).` };
   const hour = await waitFor(3600_000, c.maxEmailsPerHour);
   if (hour > 0) return { ms: hour, reason: `Hourly limit reached (${c.maxEmailsPerHour} an hour).` };
+  // Each inbox has its own daily cap: wait (before writing the next email) only when none has room.
+  const pool = sendingPool(await listInboxes(workspaceId));
+  if (pool.length && !pool.some((i) => i.open)) {
+    const n = nextOpening(pool);
+    return { ms: n.ms, reason: `${n.why}. Next free slot in ${waitText(n.ms)}.` };
+  }
   if (c.minMinutesBetweenSends > 0) {
     const last = await db.emailMessage.findFirst({ where: base, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
     const gap = last ? last.createdAt.getTime() + c.minMinutesBetweenSends * 60_000 - now + 1000 : 0;
@@ -256,7 +271,7 @@ async function processItem(run: EmailRun, item: EmailRunItem & { business: { nam
   try {
     const r = await sendEmail({ workspaceId: run.workspaceId, userId: run.createdById, to: item.email, subject: draft.subject, body: draft.bodyText, kind: "OUTREACH", businessId: item.businessId, campaignId: draft.campaignId, draftMessageId: draft.id, aiGenerated: draft.aiGenerated });
     await db.emailRunItem.update({ where: { id: item.id }, data: { status: "SENT", messageId: r.message.id, body: r.message.bodyText, finishedAt: new Date() } });
-    await db.emailRun.update({ where: { id: run.id }, data: { sent: { increment: 1 }, message: `Sent to ${item.business.name}${r.sandbox ? " (sandbox — not delivered)" : ""}.` } });
+    await db.emailRun.update({ where: { id: run.id }, data: { sent: { increment: 1 }, message: `Sent to ${item.business.name} from ${r.from}${r.sandbox ? " (sandbox — not delivered)" : ""}.` } });
     return "sent";
   } catch (e) {
     return settle(run, item, e);
@@ -270,7 +285,7 @@ async function settle(run: EmailRun, item: EmailRunItem & { business: { name: st
   if (temporary) {
     // Temporary: put it back in the queue and try again shortly (Gmail "slow down", a limit, a network blip).
     await db.emailRunItem.update({ where: { id: item.id }, data: { status: "PENDING" } });
-    if (err.code !== "RATE_LIMITED") await db.emailRun.update({ where: { id: run.id }, data: { message: `Gmail asked to slow down — trying ${item.business.name} again in about a minute.`, nextSendAt: new Date(Date.now() + 65_000) } });
+    if (err.code !== "RATE_LIMITED") await db.emailRun.update({ where: { id: run.id }, data: { message: `Gmail asked that inbox to slow down, so it rests for a while. Trying ${item.business.name} again in about a minute${err.code === "QUOTA_EXCEEDED" ? " from another inbox if you have one" : ""}.`, nextSendAt: new Date(Date.now() + 65_000) } });
     const retry = (err.details as { retryAfter?: number } | undefined)?.retryAfter;
     return err.code === "RATE_LIMITED" ? Math.max(15_000, (retry ?? 60) * 1000 + 1000) : 65_000;
   }
@@ -313,7 +328,7 @@ export async function controlEmailRun(workspaceId: string, runId: string, action
   return emailRunState(workspaceId, runId);
 }
 
-const ITEM_LIGHT = { id: true, position: true, status: true, email: true, subject: true, error: true, writer: true, finishedAt: true, business: { select: { id: true, name: true, category: true, city: true } } } as const;
+const ITEM_LIGHT = { id: true, position: true, status: true, email: true, subject: true, error: true, writer: true, finishedAt: true, messageId: true, business: { select: { id: true, name: true, category: true, city: true } } } as const;
 
 /** Live state for the run window: light list of every business, full detail for the current and the selected one. */
 export async function emailRunState(workspaceId: string, runId: string, selectedItemId?: string | null) {
@@ -331,9 +346,12 @@ export async function emailRunState(workspaceId: string, runId: string, selected
   const replies = await db.emailMessage.findMany({ where: { workspaceId, direction: "INBOUND", businessId: { in: items.map((i) => i.business.id) }, createdAt: { gte: run.createdAt } }, orderBy: { createdAt: "desc" }, select: { businessId: true, intent: true } });
   const replied = new Map<string, string>();
   for (const r of replies) if (!replied.has(r.businessId!)) replied.set(r.businessId!, r.intent ? INTENT_LABEL[r.intent] : "Replied");
+  // Which inbox each email went from (inboxes take turns).
+  const sentIds = items.map((i) => i.messageId).filter((x): x is string => Boolean(x));
+  const fromOf = new Map(sentIds.length ? (await db.emailMessage.findMany({ where: { id: { in: sentIds } }, select: { id: true, fromAddress: true } })).map((m) => [m.id, m.fromAddress]) : []);
   return {
     run: { id: run.id, name: run.name, status: run.status, total: run.total, sent: run.sent, skipped: run.skipped, failed: run.failed, left, replied: replied.size, message: run.message, nextSendAt: run.nextSendAt, writer: run.writer, instructions: run.instructions, useAi: run.useAi, createdAt: run.createdAt, startedAt: run.startedAt, finishedAt: run.finishedAt },
-    items: items.map((i) => ({ ...i, replied: replied.get(i.business.id) ?? null })),
+    items: items.map((i) => ({ ...i, replied: replied.get(i.business.id) ?? null, from: i.messageId ? fromOf.get(i.messageId) ?? null : null })),
     current,
     selected,
     setup,

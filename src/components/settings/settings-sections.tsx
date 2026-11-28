@@ -2,14 +2,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Mail, RefreshCw, Trash2, UserPlus, FlaskConical, Download } from "lucide-react";
+import { AlertTriangle, Clock, Copy, Mail, Plus, RefreshCw, Trash2, UserPlus, FlaskConical, Download } from "lucide-react";
 import { Card, CardHeader, Badge, Alert } from "../ui/misc";
 import { Button } from "../ui/button";
 import { Field, Input, Select, Switch, Textarea } from "../ui/form";
 import { ConfirmDialog, Dialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
 import { apiFetch, setThemeCookie } from "@/lib/client";
-import { timeAgo } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { AI_MODELS, RESPONSE_TONES } from "@/lib/constants";
 import { ROLE_LABEL } from "@/lib/permissions";
 import { IntegrationKeyForm } from "./integration-key-form";
@@ -56,7 +56,7 @@ export function SettingsSection({ data }: { data: D }) {
   return (
     <div className="space-y-5">
       {data.error && <Alert tone="danger" title={data.error} />}
-      {data.connected === "gmail" && <Alert tone="success" title="Gmail connected. Outreach will send from this mailbox and replies are checked every few minutes." />}
+      {data.connected === "gmail" && <Alert tone="success" title={`${data.connectedAccount ?? "Gmail"} connected. New emails take turns across your inboxes, and replies to each one are checked every few minutes.`} />}
       {{
         account: <Account d={data} />,
         workspace: <Workspace d={data} />,
@@ -251,49 +251,139 @@ function AiSettings({ d }: { d: D }) {
   );
 }
 
+/** Sent in the last 24 hours against the inbox's daily cap. */
+function InboxUsage({ sent, cap }: { sent: number; cap: number }) {
+  const full = cap > 0 && sent >= cap;
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex items-baseline justify-between gap-2 text-xs text-muted">
+        <span>Sent in the last 24 hours</span>
+        <span className="font-medium tabular-nums text-fg">{sent}{cap > 0 ? ` of ${cap}` : ""}</span>
+      </div>
+      {cap > 0 ? (
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-border/70" role="meter" aria-label="Emails sent in the last 24 hours" aria-valuemin={0} aria-valuemax={cap} aria-valuenow={Math.min(sent, cap)}>
+          <div className={cn("h-full rounded-full", full ? "bg-amber-500" : "bg-accent")} style={{ width: `${Math.min(100, (sent / cap) * 100)}%` }} />
+        </div>
+      ) : (
+        <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-300"><AlertTriangle className="h-3 w-3" /> No daily cap</div>
+      )}
+    </div>
+  );
+}
+
+function CapInput({ a, disabled, onSave }: { a: any; disabled: boolean; onSave: (n: number) => Promise<void> }) {
+  const [v, setV] = useState(String(a.dailyLimit));
+  const n = Number(v);
+  const valid = v.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= 2000;
+  const commit = () => {
+    if (!valid) setV(String(a.dailyLimit));
+    else if (n !== a.dailyLimit) void onSave(n);
+  };
+  const caution = valid && (n === 0 || n > 50) ? (n === 0 ? "No cap: this inbox can send any number of emails a day." : "Over 50 cold emails a day raises the chance Gmail flags this inbox.") : null;
+  return (
+    <label className="flex shrink-0 items-center gap-2 text-xs text-muted">
+      Daily cap
+      <Input type="number" min={0} max={2000} inputMode="numeric" className="!h-8 !w-20 !py-1 text-sm" value={v} disabled={disabled} onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} aria-label={`Daily cap for ${a.emailAddress} (0 = no cap)`} />
+      {caution ? <span title={caution} className="inline-flex"><AlertTriangle className="h-4 w-4 text-amber-600" aria-label={caution} /></span> : <span className="text-faint">0 = no cap</span>}
+    </label>
+  );
+}
+
 function EmailSettings({ d }: { d: D }) {
   const router = useRouter();
   const toast = useToast();
   const dis = !can(d, "integrations.manage");
   const [editing, setEditing] = useState<any | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const accounts: any[] = d.accounts;
+  const max: number = d.maxGmail ?? 5;
+  const gmailCount = accounts.filter((a) => a.provider === "GMAIL").length;
+  const onlySandbox = accounts.every((a) => a.provider === "SANDBOX");
+  const sending = accounts.filter((a) => a.sendingEnabled && a.status !== "ERROR" && (onlySandbox || a.provider !== "SANDBOX"));
+  const room = sending.some((a) => a.dailyLimit === 0) ? null : sending.reduce((s, a) => s + (a.resting ? 0 : Math.max(0, a.dailyLimit - a.sent)), 0);
+  const patch = async (a: any, body: object, ok?: string) => {
+    try {
+      await apiFetch(`/api/email-accounts/${a.id}`, { method: "PATCH", body });
+      if (ok) toast.success(ok);
+      router.refresh();
+    } catch (e) {
+      toast.error("Not saved", (e as Error).message);
+    }
+  };
+  const linkBtn = "inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-medium hover:bg-subtle";
   return (
     <>
-      <Section title="Connected accounts" description="We never store email passwords: Gmail uses OAuth; Postmark uses an API token encrypted at rest.">
-        {d.accounts.length === 0 && <p className="text-sm text-muted">No email account connected yet.</p>}
+      <Section title="Sending inboxes" description={`Link up to ${max} Gmail accounts. New emails take turns across your inboxes, and each one stays under its own daily cap.`}>
+        <div className="flex items-start gap-3 rounded-xl border border-amber-400/60 bg-amber-50 p-3 dark:bg-amber-500/10">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-100/90">
+            <span className="font-semibold">Caution:</span> Google&apos;s Gmail rules don&apos;t allow using extra accounts to get around sending limits, and inboxes that send a lot of cold email can be suspended. Keep each daily cap low (40 is a safe start), email only businesses cleared for contact, and keep the unsubscribe line in every email.
+          </p>
+        </div>
+        {accounts.length === 0 ? (
+          <p className="text-sm text-muted">No email account connected yet.</p>
+        ) : (
+          <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm">
+            <span><span className="font-semibold tabular-nums">{sending.length}</span> <span className="text-muted">of {accounts.length} {accounts.length === 1 ? "inbox" : "inboxes"} sending new emails</span></span>
+            <span><span className="font-semibold tabular-nums">{accounts.reduce((s, a) => s + a.sent, 0)}</span> <span className="text-muted">sent in the last 24 hours</span></span>
+            <span>{room === null ? <span className="text-muted">No cap on at least one inbox</span> : <><span className="font-semibold tabular-nums">{room}</span> <span className="text-muted">more can go out today</span></>}</span>
+          </div>
+        )}
         <ul className="space-y-3">
-          {d.accounts.map((a: any) => (
+          {accounts.map((a) => (
             <li key={a.id} className="rounded-xl border border-border p-4">
               <div className="flex flex-wrap items-center gap-2">
                 {a.provider === "SANDBOX" ? <FlaskConical className="h-4 w-4 text-sky-500" /> : <Mail className="h-4 w-4 text-muted" />}
-                <span className="font-medium">{a.emailAddress}</span>
+                <span className="min-w-0 break-all font-medium">{a.emailAddress}</span>
                 <Badge tone={a.provider === "SANDBOX" ? "sky" : "slate"}>{a.provider === "SANDBOX" ? "SANDBOX — not delivered" : a.provider === "GMAIL" ? "Gmail" : "Postmark"}</Badge>
-                <Badge tone={a.status === "ERROR" ? "red" : "green"} dot>{a.status === "ERROR" ? "Error" : "Connected"}</Badge>
-                {a.isDefault && <Badge tone="indigo">Default sender</Badge>}
+                <Badge tone={a.status === "ERROR" ? "red" : "green"} dot>{a.status === "ERROR" ? "Needs reconnecting" : "Connected"}</Badge>
+                {a.isDefault && <Badge tone="indigo">Main inbox</Badge>}
+                {!a.sendingEnabled && <Badge tone="zinc">Not sending new emails</Badge>}
+                {a.resting && <Badge tone="amber"><Clock className="h-3 w-3" /> Resting: Gmail asked it to slow down</Badge>}
+                {a.opensAt && <span className="text-xs text-muted">Can send again <RelTime d={a.opensAt} /></span>}
+              </div>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
+                <InboxUsage sent={a.sent} cap={a.dailyLimit} />
+                <CapInput key={`${a.id}:${a.dailyLimit}`} a={a} disabled={dis} onSave={(n) => patch(a, { dailyLimit: n }, n === 0 ? `${a.emailAddress}: no daily cap` : `${a.emailAddress}: up to ${n} a day`)} />
+              </div>
+              <div className="mt-3">
+                <Switch checked={a.sendingEnabled} disabled={dis} onChange={(v) => patch(a, { sendingEnabled: v }, v ? `${a.emailAddress} is sending again` : `${a.emailAddress} won't send new emails`)} label="Send new emails from this inbox" description={a.sendingEnabled ? "Takes turns with your other inboxes." : "Off: it still answers its own conversations."} />
               </div>
               <dl className="mt-3 grid gap-1 text-[13px] text-muted sm:grid-cols-2">
                 <div>Sending identity: {a.displayName ? `${a.displayName} <${a.emailAddress}>` : a.emailAddress}</div>
                 <div>Reply-to: {a.replyTo || "same as sender"}</div>
-                <div>Sending limit: {d.settings.compliance.maxEmailsPerDay > 0 ? `${d.settings.compliance.maxEmailsPerDay}/day` : "no daily limit"} · {d.settings.compliance.maxEmailsPerHour > 0 ? `${d.settings.compliance.maxEmailsPerHour}/hour` : "no hourly limit"}</div>
-                <div>Automatic responses: {d.settings.automation.automaticReplies && d.settings.automation.responseMode === "AUTOMATIC" ? "On (strict rules)" : "Off"}</div>
                 {a.provider === "GMAIL" && <div>Last inbox check: {a.lastSyncAt ? <RelTime d={a.lastSyncAt} /> : "never"}</div>}
                 {a.provider === "POSTMARK" && <div>Reply routing: {a.inboundAddress ? `${a.inboundAddress} (+tracking hash)` : "by headers & sender"}</div>}
               </dl>
               {a.lastError && <p className="mt-2 text-xs text-danger">{a.lastError}</p>}
               {!dis && (
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {a.provider === "GMAIL" && a.status === "ERROR" && <a href={`/api/auth/google?purpose=gmail&hint=${encodeURIComponent(a.emailAddress)}`} className={cn(linkBtn, "border-accent bg-accent text-white hover:bg-accent/90")}><RefreshCw className="h-3.5 w-3.5" /> Reconnect</a>}
                   <Button size="sm" variant="outline" onClick={() => setEditing({ ...a })}>Edit identity & signature</Button>
                   <Button size="sm" variant="outline" loading={busy === `t${a.id}`} onClick={async () => { setBusy(`t${a.id}`); try { const r = await apiFetch<{ ok: boolean; message?: string; error?: string }>(`/api/email-accounts/${a.id}/test`, { body: {} }); if (r.ok) toast.success("Connection OK", r.message); else toast.error("Connection failed", r.error); router.refresh(); } finally { setBusy(null); } }}>Send test</Button>
                   {a.provider === "GMAIL" && <Button size="sm" variant="outline" loading={busy === `s${a.id}`} onClick={async () => { setBusy(`s${a.id}`); try { const r = await apiFetch<{ message: string }>(`/api/email-accounts/${a.id}/sync`, { body: {} }); toast.info(r.message); } finally { setBusy(null); } }}><RefreshCw className="h-4 w-4" /> Check inbox</Button>}
-                  {!a.isDefault && <Button size="sm" variant="ghost" onClick={async () => { await apiFetch(`/api/email-accounts/${a.id}`, { method: "PATCH", body: { isDefault: true } }); router.refresh(); }}>Make default</Button>}
-                  <Button size="sm" variant="ghost" onClick={async () => { if (!confirm(`Disconnect ${a.emailAddress}? Message history is kept.`)) return; await apiFetch(`/api/email-accounts/${a.id}`, { method: "DELETE" }); router.refresh(); }}><Trash2 className="h-4 w-4" /> Disconnect</Button>
+                  {a.resting && <Button size="sm" variant="ghost" onClick={() => patch(a, { restUntil: null }, "Rest ended")}>End rest now</Button>}
+                  {!a.isDefault && <Button size="sm" variant="ghost" onClick={() => patch(a, { isDefault: true }, `${a.emailAddress} is now the main inbox`)}>Make main inbox</Button>}
+                  <Button size="sm" variant="ghost" onClick={async () => { if (!confirm(`Disconnect ${a.emailAddress}? Message history is kept; its conversations continue from your other inboxes.`)) return; await apiFetch(`/api/email-accounts/${a.id}`, { method: "DELETE" }); router.refresh(); }}><Trash2 className="h-4 w-4" /> Disconnect</Button>
                 </div>
               )}
             </li>
           ))}
         </ul>
+        {!dis && d.integrations.googleOAuthAvailable && (gmailCount < max ? (
+          <div>
+            <a href="/api/auth/google?purpose=gmail" className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border p-3 text-sm font-medium transition-colors hover:border-faint hover:bg-subtle">
+              <Plus className="h-4 w-4" /> {gmailCount ? "Connect another Gmail" : "Connect Gmail"} <span className="font-normal text-muted">({gmailCount} of {max})</span>
+            </a>
+            <p className="mt-2 text-xs text-muted">Google asks which account to use: pick the Gmail you want to add. If Google says the app is blocked, add that address under Test users on your app&apos;s Google Cloud OAuth consent screen.</p>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-border p-3 text-center text-sm text-muted">{max} of {max} Gmail accounts linked. Disconnect one to add another.</p>
+        ))}
+        {!d.integrations.googleOAuthAvailable && <p className="text-xs text-muted">Gmail needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server (see Help → Email setup).</p>}
+        <p className="text-xs leading-relaxed text-muted">How sending works: each new email goes from the inbox that has sent the least in the last 24 hours and still has room under its cap. Replies and follow-ups always go from the inbox that started the conversation, so threads stay together. Replies to every inbox appear in your Inbox.</p>
       </Section>
-      <Section title="Connect an account"><EmailConnect integrations={d.integrations} disabled={dis} onChange={() => router.refresh()} /></Section>
+      <Section title="Other ways to send"><EmailConnect integrations={d.integrations} disabled={dis} showList={false} hideGmail onChange={() => router.refresh()} /></Section>
       <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} title="Sending identity" footer={<><Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button><Button loading={busy === "e"} onClick={async () => { setBusy("e"); try { await apiFetch(`/api/email-accounts/${editing.id}`, { method: "PATCH", body: { displayName: editing.displayName, replyTo: editing.replyTo, signature: editing.signature, ...(editing.provider === "POSTMARK" ? { inboundAddress: editing.inboundAddress ?? "" } : {}) } }); toast.success("Saved"); setEditing(null); router.refresh(); } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); } }}>Save</Button></>}>
         {editing && <div className="space-y-4">
           <Field label="Display name" htmlFor="ed"><Input id="ed" value={editing.displayName} onChange={(e) => setEditing({ ...editing, displayName: e.target.value })} /></Field>

@@ -12,9 +12,12 @@ type Props = {
   integrations: { email: { id: string; provider: string; emailAddress: string; status: string }[]; googleOAuthAvailable: boolean; sandboxAvailable: boolean };
   disabled?: boolean;
   onChange?: () => void;
+  /** Settings lists the accounts (and its own "Connect another Gmail") itself. */
+  showList?: boolean;
+  hideGmail?: boolean;
 };
 
-export function EmailConnect({ integrations, disabled, onChange }: Props) {
+export function EmailConnect({ integrations, disabled, onChange, showList = true, hideGmail = false }: Props) {
   const toast = useToast();
   const [mode, setMode] = useState<null | "postmark" | "sandbox">(null);
   const [form, setForm] = useState({ emailAddress: "", displayName: "", serverToken: "", inboundAddress: "" });
@@ -39,7 +42,7 @@ export function EmailConnect({ integrations, disabled, onChange }: Props) {
 
   return (
     <div className="space-y-4">
-      {integrations.email.length > 0 && (
+      {showList && integrations.email.length > 0 && (
         <ul className="divide-y divide-border rounded-xl border border-border">
           {integrations.email.map((a) => (
             <li key={a.id} className="flex items-center gap-3 px-4 py-3 text-sm">
@@ -60,9 +63,9 @@ export function EmailConnect({ integrations, disabled, onChange }: Props) {
       )}
       {!disabled && (
         <div className="grid gap-3 sm:grid-cols-3">
-          {integrations.googleOAuthAvailable ? (
+          {hideGmail ? null : integrations.googleOAuthAvailable ? (
             <a href="/api/auth/google?purpose=gmail" className="rounded-xl border border-border p-4 text-left transition-colors hover:bg-subtle">
-              <div className="flex items-center gap-2 text-sm font-semibold"><Mail className="h-4 w-4" /> Gmail</div>
+              <div className="flex items-center gap-2 text-sm font-semibold"><Mail className="h-4 w-4" /> {integrations.email.some((a) => a.provider === "GMAIL") ? "Add another Gmail" : "Gmail"}</div>
               <p className="mt-1 text-xs text-muted">Secure Google OAuth. Sends from your mailbox and detects replies automatically.</p>
             </a>
           ) : (

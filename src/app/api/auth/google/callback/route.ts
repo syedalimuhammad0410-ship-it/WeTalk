@@ -7,6 +7,7 @@ import { env } from "@/lib/server/env";
 import { exchangeCode, verifyState } from "@/lib/server/oauth";
 import { logActivity } from "@/lib/server/activity";
 import { clientIp } from "@/lib/server/api";
+import { MAX_GMAIL_ACCOUNTS } from "@/lib/server/email/inboxes";
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl;
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest) {
       if (!tokens.refresh_token) throw new Error("Google did not return offline access. Remove WebScout from your Google account permissions and try again.");
       const scopes = tokens.scope ?? "";
       if (!scopes.includes("gmail.send")) throw new Error("Gmail send permission was not granted.");
-      const existing = await db.emailAccount.findFirst({ where: { workspaceId: ctx.workspace.id, provider: "GMAIL", emailAddress: profile.email.toLowerCase() } });
+      const address = profile.email.toLowerCase();
+      const existing = await db.emailAccount.findFirst({ where: { workspaceId: ctx.workspace.id, provider: "GMAIL", emailAddress: address } });
       const data = {
         accessTokenEncrypted: encryptSecret(tokens.access_token!),
         refreshTokenEncrypted: encryptSecret(tokens.refresh_token),
@@ -34,11 +36,15 @@ export async function GET(req: NextRequest) {
       };
       if (existing) await db.emailAccount.update({ where: { id: existing.id }, data });
       else {
-        await db.emailAccount.updateMany({ where: { workspaceId: ctx.workspace.id }, data: { isDefault: false } });
-        await db.emailAccount.create({ data: { workspaceId: ctx.workspace.id, provider: "GMAIL", emailAddress: profile.email.toLowerCase(), displayName: profile.name ?? "", isDefault: true, lastSyncAt: new Date(), ...data } });
+        // Up to 5 Gmail inboxes take turns sending. The first real inbox becomes the main one; adding more keeps it.
+        const linked = await db.emailAccount.count({ where: { workspaceId: ctx.workspace.id, provider: "GMAIL" } });
+        if (linked >= MAX_GMAIL_ACCOUNTS) throw new Error(`You've linked ${MAX_GMAIL_ACCOUNTS} Gmail accounts, the most WebScout allows. Disconnect one in Settings → Email, then add ${address}.`);
+        const main = await db.emailAccount.findFirst({ where: { workspaceId: ctx.workspace.id, isDefault: true, provider: { not: "SANDBOX" } }, select: { id: true } });
+        if (!main) await db.emailAccount.updateMany({ where: { workspaceId: ctx.workspace.id }, data: { isDefault: false } });
+        await db.emailAccount.create({ data: { workspaceId: ctx.workspace.id, provider: "GMAIL", emailAddress: address, displayName: profile.name ?? "", isDefault: !main, lastSyncAt: new Date(), ...data } });
       }
-      await logActivity({ workspaceId: ctx.workspace.id, userId: ctx.user.id, action: "email.connected", summary: `Gmail account ${profile.email} connected` });
-      return NextResponse.redirect(new URL("/settings/email?connected=gmail", env.appUrl()));
+      await logActivity({ workspaceId: ctx.workspace.id, userId: ctx.user.id, action: "email.connected", summary: `Gmail account ${profile.email} ${existing ? "reconnected" : "connected"}` });
+      return NextResponse.redirect(new URL(`/settings/email?connected=gmail&account=${encodeURIComponent(address)}`, env.appUrl()));
     }
 
     const email = profile.email.toLowerCase();

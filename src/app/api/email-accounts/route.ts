@@ -5,18 +5,25 @@ import { encryptSecret, randomToken, sha256 } from "@/lib/server/crypto";
 import { AppError } from "@/lib/server/errors";
 import { env } from "@/lib/server/env";
 import { logActivity } from "@/lib/server/activity";
+import { listInboxes } from "@/lib/server/email/inboxes";
 
 const Body = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("POSTMARK"), emailAddress: z.string().trim().email(), displayName: z.string().trim().max(100).default(""), serverToken: z.string().trim().min(10), inboundAddress: z.union([z.literal(""), z.string().trim().email()]).default("") }),
   z.object({ provider: z.literal("SANDBOX"), emailAddress: z.string().trim().email(), displayName: z.string().trim().max(100).default("") }),
 ]);
 
-export const GET = api({}, async (_req, ctx) =>
-  db.emailAccount.findMany({
-    where: { workspaceId: ctx.workspace.id },
-    select: { id: true, provider: true, emailAddress: true, displayName: true, replyTo: true, signature: true, status: true, lastError: true, lastSyncAt: true, isDefault: true, inboundAddress: true },
-  }),
-);
+export const GET = api({}, async (_req, ctx) => {
+  const [accounts, inboxes] = await Promise.all([
+    db.emailAccount.findMany({
+      where: { workspaceId: ctx.workspace.id },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+      select: { id: true, provider: true, emailAddress: true, displayName: true, replyTo: true, signature: true, status: true, lastError: true, lastSyncAt: true, isDefault: true, inboundAddress: true, dailyLimit: true, sendingEnabled: true, restUntil: true },
+    }),
+    listInboxes(ctx.workspace.id),
+  ]);
+  // sent = emails from this inbox in the last 24 hours, the window its daily cap counts.
+  return accounts.map((a) => ({ ...a, sent: inboxes.find((i) => i.account.id === a.id)?.sent ?? 0 }));
+});
 
 export const POST = api({ permission: "integrations.manage" }, async (req, ctx) => {
   const body = await parseBody(req, Body);

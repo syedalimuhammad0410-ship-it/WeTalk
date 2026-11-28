@@ -17,7 +17,8 @@ export type AudienceLead = {
   id: string; name: string; category: string | null; group: string; city: string | null; website: string | null; email: string;
   eligibility: "ELIGIBLE" | "NEEDS_REVIEW" | "INELIGIBLE"; reason: string | null; emailed: boolean; lastContactedAt: string | null; doNotContact: boolean; suppressed: boolean;
 };
-type Setup = { blockers: { code: string; title: string; detail: string; href: string }[]; sender: string | null; writer: string | null; limits: { perDay: number; perHour: number; gapMinutes: number } };
+type Notice = { code: string; title: string; detail: string; href: string };
+type Setup = { blockers: Notice[]; warnings?: Notice[]; sender: string | null; senders?: { email: string; sent: number; cap: number; resting: boolean }[]; roomToday?: number | null; writer: string | null; limits: { perDay: number; perHour: number; gapMinutes: number } };
 type RunRow = { id: string; name: string; status: string; total: number; sent: number; skipped: number; failed: number; createdAt: string; finishedAt: string | null };
 export type ComposerData = { leads: AudienceLead[]; setup: Setup; runs: RunRow[]; groups: { id: string; label: string }[]; replies: ReplyRow[] };
 
@@ -140,8 +141,8 @@ export function EmailsComposer({ initial, canSend, initialTab = "send" }: { init
       <Tabs className="mb-5" value={tab} onChange={switchTab} tabs={[{ id: "send", label: "Send emails" }, { id: "replies", label: "Replies", count: replies.length }]} />
       {tab === "replies" ? <RepliesView replies={replies} /> : (<>
 
-      {setup.blockers.map((b) => (
-        <Alert key={b.code} tone="warning" className="mb-3" title={b.title} action={<ButtonLink href={b.href} size="sm" variant="outline">Fix this <ArrowRight className="h-3.5 w-3.5" /></ButtonLink>}>
+      {[...setup.blockers, ...(setup.warnings ?? [])].map((b) => (
+        <Alert key={`${b.code}:${b.title}`} tone="warning" className="mb-3" title={b.title} action={<ButtonLink href={b.href} size="sm" variant="outline">Fix this <ArrowRight className="h-3.5 w-3.5" /></ButtonLink>}>
           {b.detail}
         </Alert>
       ))}
@@ -153,7 +154,7 @@ export function EmailsComposer({ initial, canSend, initialTab = "send" }: { init
       )}
 
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <Card className="flex items-center gap-3 p-4"><Mail className="h-5 w-5 text-accent" /><div className="min-w-0"><div className="text-xs text-muted">Sends from</div><div className="truncate text-sm font-medium">{setup.sender ?? "No email account connected"}</div></div></Card>
+        <Card className="flex items-center gap-3 p-4"><Mail className="h-5 w-5 text-accent" /><div className="min-w-0"><div className="text-xs text-muted">Sends from</div><div className="truncate text-sm font-medium" title={setup.senders?.map((x) => `${x.email}: ${x.sent}${x.cap ? ` of ${x.cap}` : ""} sent in 24 h`).join("\n")}>{setup.sender ?? "No email account connected"}</div>{(setup.senders?.length ?? 0) > 0 && <div className="text-xs text-muted">{setup.roomToday == null ? "No daily cap" : `Room for ${setup.roomToday} more today`} · <Link href="/settings/email" className="underline hover:text-fg">Inboxes</Link></div>}</div></Card>
         <Card className="flex items-center gap-3 p-4"><Bot className="h-5 w-5 text-accent" /><div className="min-w-0"><div className="text-xs text-muted">Each email is written by</div><div className="truncate text-sm font-medium">{setup.writer ?? "Your template (no AI connected)"}</div></div></Card>
         {limitText ? (
           <Card className="flex items-center gap-3 p-4"><Clock className="h-5 w-5 text-accent" /><div className="min-w-0"><div className="text-xs text-muted">Your sending limits</div><div className="text-sm font-medium">{limitText}</div><Link href="/settings/compliance" className="text-xs text-muted underline hover:text-fg">Change (0 = no limit)</Link></div></Card>

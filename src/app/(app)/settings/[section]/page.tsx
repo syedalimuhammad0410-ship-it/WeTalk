@@ -8,10 +8,11 @@ import { SettingsNav } from "@/components/settings/settings-nav";
 import { SETTINGS_SECTIONS } from "@/lib/settings-sections";
 import { SettingsSection } from "@/components/settings/settings-sections";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
+import { listInboxes, MAX_GMAIL_ACCOUNTS } from "@/lib/server/email/inboxes";
 
 export const metadata = { title: "Settings" };
 
-export default async function SettingsPage({ params, searchParams }: { params: Promise<{ section: string }>; searchParams: Promise<{ error?: string; connected?: string }> }) {
+export default async function SettingsPage({ params, searchParams }: { params: Promise<{ section: string }>; searchParams: Promise<{ error?: string; connected?: string; account?: string }> }) {
   const ctx = await pageContext();
   const { section } = await params;
   if (!SETTINGS_SECTIONS.some((s) => s.id === section)) notFound();
@@ -28,7 +29,12 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     db.session.findMany({ where: { userId: ctx.user.id }, orderBy: { lastUsedAt: "desc" }, select: { id: true, createdAt: true, lastUsedAt: true, userAgent: true, ipAddress: true } }),
     Promise.all([db.business.count({ where: { workspaceId: ws } }), db.conversation.count({ where: { workspaceId: ws } }), db.campaign.count({ where: { workspaceId: ws } })]),
   ]);
-  const accounts = await db.emailAccount.findMany({ where: { workspaceId: ws }, select: { id: true, provider: true, emailAddress: true, displayName: true, replyTo: true, signature: true, status: true, lastError: true, lastSyncAt: true, isDefault: true, inboundAddress: true } });
+  const [rawAccounts, inboxes] = await Promise.all([
+    db.emailAccount.findMany({ where: { workspaceId: ws }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }], select: { id: true, provider: true, emailAddress: true, displayName: true, replyTo: true, signature: true, status: true, lastError: true, lastSyncAt: true, isDefault: true, inboundAddress: true, dailyLimit: true, sendingEnabled: true, restUntil: true } }),
+    listInboxes(ws),
+  ]);
+  // sent = emails from each inbox in the last 24 hours (what its daily cap counts); opensAt = when a capped or resting inbox can send again.
+  const accounts = rawAccounts.map((a) => { const i = inboxes.find((x) => x.account.id === a.id); return { ...a, sent: i?.sent ?? 0, resting: i?.resting ?? false, opensAt: i && !i.open ? i.opensAt : null }; });
   // Section-specific data, loaded only where it is shown.
   const extra =
     section === "billing"
@@ -42,7 +48,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
           }
         : {};
   const data = {
-    section, error: sp.error ?? null, connected: sp.connected ?? null,
+    section, error: sp.error ?? null, connected: sp.connected ?? null, connectedAccount: sp.account ?? null, maxGmail: MAX_GMAIL_ACCOUNTS,
     workspace: ctx.workspace, role: ctx.role, permissions: Array.from(ROLE_PERMISSIONS[ctx.role]),
     user: { ...user, hasPassword: Boolean(user.passwordHash), passwordHash: undefined, hasGoogle: Boolean(user.googleId) },
     settings, integrations, accounts, members, invitations, suppressions, sessions,

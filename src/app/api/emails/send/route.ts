@@ -10,7 +10,7 @@ export const POST = api({ permission: "emails.send" }, async (req, ctx) => {
   const draft = await db.emailMessage.findFirst({ where: { id: b.draftId, workspaceId: ctx.workspace.id, status: "DRAFT" }, include: { business: true, campaign: true } });
   if (!draft) throw new AppError("NOT_FOUND", "Draft not found (it may already have been sent).");
   if (!draft.toAddress) throw new AppError("VALIDATION", "Add a recipient email address first.");
-  const account = await getSendingAccount(ctx.workspace.id);
+  const account = await getSendingAccount(ctx.workspace.id, { kind: draft.kind, conversationId: draft.conversationId });
   await checkSendAllowed({ workspaceId: ctx.workspace.id, to: draft.toAddress, businessId: draft.businessId, kind: draft.kind });
   const summary = {
     recipient: draft.toAddress,

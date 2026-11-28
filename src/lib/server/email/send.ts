@@ -6,6 +6,7 @@ import { logActivity, notify } from "../activity";
 import { changeLeadStatus, isSuppressed } from "../leads";
 import { getSettings } from "../workspace";
 import { providerFor } from "./providers";
+import { pickSendingAccount, restFor } from "./inboxes";
 
 export type SendInput = {
   workspaceId: string;
@@ -26,12 +27,10 @@ export type SendInput = {
 const EMAIL_RE = /^[^\s@<>()]+@[^\s@<>()]+\.[a-z]{2,}$/i;
 const FREE_DOMAINS = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com", "aol.com", "live.com", "msn.com", "proton.me", "protonmail.com"];
 
-export async function getSendingAccount(workspaceId: string): Promise<EmailAccount> {
-  const acc =
-    (await db.emailAccount.findFirst({ where: { workspaceId, isDefault: true, status: { not: "DISCONNECTED" } } })) ??
-    (await db.emailAccount.findFirst({ where: { workspaceId, status: { not: "DISCONNECTED" } } }));
-  if (!acc) throw new AppError("NOT_CONFIGURED", "Connect an email account in Settings → Email to send emails.");
-  return acc;
+/** The inbox an email would go from right now (see inboxes.ts for how inboxes take turns). */
+export async function getSendingAccount(workspaceId: string, opts: { kind?: MessageKind; conversationId?: string | null } = {}): Promise<EmailAccount> {
+  const conv = opts.conversationId ? await db.conversation.findFirst({ where: { id: opts.conversationId, workspaceId }, select: { emailAccountId: true } }) : null;
+  return pickSendingAccount(workspaceId, { kind: opts.kind ?? "OUTREACH", boundAccountId: conv?.emailAccountId });
 }
 
 /** Pre-flight checks shared by the UI (to show what would block a send) and the sender. */
@@ -93,13 +92,12 @@ function composeFinalBody(body: string, account: EmailAccount, compliance: Await
  */
 export async function sendEmail(input: SendInput) {
   const compliance = await checkSendAllowed(input);
-  const account = await getSendingAccount(input.workspaceId);
   if (!input.subject.trim()) throw new AppError("VALIDATION", "Subject is required.");
   if (!input.body.trim()) throw new AppError("VALIDATION", "Message body is required.");
   if (/\{\{\s*[a-z_]+\s*\}\}/.test(input.subject + input.body)) throw new AppError("VALIDATION", "The email still contains unfilled template variables ({{…}}). Edit them before sending.");
   const to = input.to.trim().toLowerCase();
   const { unsubscribeUrl } = await import("./unsubscribe");
-  const finalBody = composeFinalBody(input.body, account, compliance, input.kind, Boolean(input.aiGenerated), unsubscribeUrl(input.workspaceId, to));
+  const unsubscribe = unsubscribeUrl(input.workspaceId, to);
   // Outreach drafted outside a campaign still belongs to the campaign the lead is in (most recently added).
   if (!input.campaignId && input.businessId && input.kind === "OUTREACH") {
     const member = await db.campaignLead.findFirst({ where: { businessId: input.businessId, campaign: { workspaceId: input.workspaceId } }, orderBy: { addedAt: "desc" }, select: { campaignId: true } });
@@ -113,15 +111,20 @@ export async function sendEmail(input: SendInput) {
     conversation = await db.conversation.findFirst({ where: { workspaceId: input.workspaceId, businessId: input.businessId, counterpartEmail: to }, orderBy: { lastMessageAt: "desc" } });
   }
   const thread = conversation
-    ? await db.emailMessage.findMany({ where: { conversationId: conversation.id, status: { in: ["SENT", "RECEIVED"] } }, orderBy: { createdAt: "asc" }, select: { rfcMessageId: true, providerThreadId: true } })
+    ? await db.emailMessage.findMany({ where: { conversationId: conversation.id, status: { in: ["SENT", "RECEIVED"] } }, orderBy: { createdAt: "asc" }, select: { rfcMessageId: true, providerThreadId: true, emailAccountId: true } })
     : [];
   const refs = thread.map((t) => t.rfcMessageId).filter(Boolean) as string[];
   const inReplyTo = refs[refs.length - 1] ?? null;
-  const providerThreadId = thread.map((t) => t.providerThreadId).filter(Boolean).pop() ?? conversation?.providerThreadId ?? null;
+  const startedFrom = conversation?.emailAccountId ?? null;
+  const convThreadId = conversation?.providerThreadId ?? null;
 
   // Reserve a send slot atomically
-  const queued = await db.$transaction(async (tx) => {
+  const { queued, account, finalBody } = await db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`send:${input.workspaceId}`}))`;
+    // Which inbox: the conversation's own, else the least-used one with room. Inside the lock, so two
+    // sends can't both take an inbox's last slot for the day.
+    const account = await pickSendingAccount(input.workspaceId, { kind: input.kind, boundAccountId: startedFrom, client: tx });
+    const finalBody = composeFinalBody(input.body, account, compliance, input.kind, Boolean(input.aiGenerated), unsubscribe);
     const now = Date.now();
     const base = { workspaceId: input.workspaceId, direction: "OUTBOUND" as const, status: { in: ["SENT" as const, "QUEUED" as const] } };
     const [day, hour, last] = await Promise.all([
@@ -140,6 +143,9 @@ export async function sendEmail(input: SendInput) {
       conversation = await tx.conversation.create({
         data: { workspaceId: input.workspaceId, businessId: input.businessId ?? null, emailAccountId: account.id, subject: input.subject, counterpartEmail: to, lastDirection: "OUTBOUND" },
       });
+    } else if (conversation.emailAccountId !== account.id) {
+      // The inbox it started in was disconnected: the conversation continues from this one from now on.
+      conversation = await tx.conversation.update({ where: { id: conversation.id }, data: { emailAccountId: account.id, providerThreadId: null } });
     }
     const msgData = {
       workspaceId: input.workspaceId,
@@ -163,12 +169,14 @@ export async function sendEmail(input: SendInput) {
       const d = await tx.emailMessage.findFirst({ where: { id: input.draftMessageId, workspaceId: input.workspaceId, status: "DRAFT" } });
       if (!d) throw new AppError("CONFLICT", "This draft was already sent or deleted.");
       // createdAt marks when the send was queued: sending limits and spacing count from it.
-      return tx.emailMessage.update({ where: { id: d.id }, data: { ...msgData, createdAt: new Date() } });
+      return { account, finalBody, queued: await tx.emailMessage.update({ where: { id: d.id }, data: { ...msgData, createdAt: new Date() } }) };
     }
-    return tx.emailMessage.create({ data: msgData });
+    return { account, finalBody, queued: await tx.emailMessage.create({ data: msgData }) };
   });
 
   const conv = conversation!;
+  // Gmail thread ids belong to one mailbox: only continue a thread the sending inbox itself holds.
+  const providerThreadId = thread.filter((t) => t.emailAccountId === account.id).map((t) => t.providerThreadId).filter(Boolean).pop() ?? (startedFrom === account.id ? convThreadId : null);
   let replyToOverride: string | null = null;
   if (account.inboundAddress) {
     const [local, domain] = account.inboundAddress.split("@");
@@ -186,6 +194,8 @@ export async function sendEmail(input: SendInput) {
       where: { id: conv.id },
       data: { lastMessageAt: sentAt, lastDirection: "OUTBOUND", providerThreadId: conv.providerThreadId ?? result.providerThreadId, needsHumanReview: false, reviewReason: null, unread: false },
     });
+    // It sent, so the connection works: clear a stale error.
+    if (account.status === "ERROR") await db.emailAccount.update({ where: { id: account.id }, data: { status: "CONNECTED", lastError: null } });
     if (message.businessId) {
       await db.business.update({ where: { id: message.businessId }, data: { lastContactedAt: sentAt } });
       if (input.kind === "OUTREACH") await changeLeadStatus({ workspaceId: input.workspaceId, businessId: message.businessId, to: "CONTACTED", userId: input.userId, automatic: true, reason: "Outreach sent" });
@@ -203,12 +213,15 @@ export async function sendEmail(input: SendInput) {
       const { scheduleFollowUps } = await import("../followups");
       await scheduleFollowUps(input.workspaceId, message.businessId, conv.id, input.campaignId ?? null, sentAt);
     }
-    return { message, conversationId: conv.id, sandbox: account.provider === "SANDBOX" };
+    return { message, conversationId: conv.id, sandbox: account.provider === "SANDBOX", from: account.emailAddress };
   } catch (e) {
     const reason = describeError(e);
+    const code = (e as AppError).code;
     await db.emailMessage.update({ where: { id: queued.id }, data: { status: "FAILED", error: reason.slice(0, 1000) } });
     await notify({ workspaceId: input.workspaceId, type: "EMAIL_FAILURE", title: `Email to ${to} failed`, body: reason, link: input.businessId ? `/leads/${input.businessId}` : `/inbox/${conv.id}` });
-    if ((e as AppError).code === "INVALID_CREDENTIALS") await db.emailAccount.update({ where: { id: account.id }, data: { status: "ERROR", lastError: reason.slice(0, 500) } });
+    if (code === "INVALID_CREDENTIALS") await db.emailAccount.update({ where: { id: account.id }, data: { status: "ERROR", lastError: reason.slice(0, 500) } });
+    // Gmail asked this inbox to slow down: it rests, and new outreach goes from the other inboxes meanwhile.
+    if (code === "QUOTA_EXCEEDED" || code === "RATE_LIMITED") await db.emailAccount.update({ where: { id: account.id }, data: { restUntil: new Date(Date.now() + restFor(reason)) } });
     throw e;
   }
 }

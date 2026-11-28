@@ -478,6 +478,12 @@ model EmailAccount {
   status                ConnectionStatus @default(CONNECTED)
   lastError             String?
   isDefault             Boolean          @default(true)
+  /// Most emails this inbox sends in any 24 hours (0 = no cap). New outreach rotates across inboxes with room.
+  dailyLimit            Int              @default(40)
+  /// Off: the inbox still answers its own conversations, but new outreach goes from the other inboxes.
+  sendingEnabled        Boolean          @default(true)
+  /// Gmail asked this inbox to slow down: no new outreach from it until then.
+  restUntil             DateTime?
   syncCursor            String?
   lastSyncAt            DateTime?
   createdAt             DateTime         @default(now())
